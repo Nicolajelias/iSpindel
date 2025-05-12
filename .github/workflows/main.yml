@@ -8,7 +8,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@master
-    - uses: DoozyX/clang-format-lint-action@v0.11
+    - uses: DoozyX/clang-format-lint-action@v0.18
       with:
         source: './pio/src'
         extensions: 'h,cpp'
@@ -29,14 +29,14 @@ jobs:
       run: |
         echo ${{ steps.get-ver.outputs.ver_name }}
     - name: Cache pip
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-
     - name: Cache PlatformIO
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.platformio
         key: ${{ runner.os }}-${{ hashFiles('**/lockfiles') }}
@@ -51,7 +51,7 @@ jobs:
     - name: Run PlatformIO
       run: pio run -e d1_mini_git
     - name: Save firmware
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: firmware
         path: .pio/build/d1_mini_git/firmware.bin
