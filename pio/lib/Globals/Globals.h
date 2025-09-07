@@ -119,6 +119,10 @@ extern Ticker flasher;
 
 #define UNINIT 0
 
+// Charging pose sleep config
+#define CHARGE_TILT_DEG 10.0f   // Grænse for "på hovedet" (grader)
+#define CHARGE_SLEEP_S 300      // Vækkes hvert 5. minut for at tjekke vinkel
+
 extern int16_t ax, ay, az;
 extern float Volt, Temperatur, Tilt, Gravity;
 

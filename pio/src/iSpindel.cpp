@@ -817,20 +817,19 @@ bool uploadData(uint8_t service)
   return false;
 }
 
-void goodNight(uint32_t seconds)
+void goodNight(uint32_t seconds, bool rfOnWake)
 {
-
   uint32_t _seconds = seconds;
   uint32_t left2sleep = 0;
   uint32_t validflag = RTCVALIDFLAG;
 
   drd.stop();
 
-  // workaround for DS not floating
+  // DS-pin lav for at undgå floating/µA
   pinMode(myData.OWpin, OUTPUT);
   digitalWrite(myData.OWpin, LOW);
 
-  // we need another incarnation before work run
+  // Step-sleeps: RF altid OFF (som i originalen)
   if (_seconds > MAXSLEEPTIME)
   {
     left2sleep = _seconds - MAXSLEEPTIME;
@@ -839,20 +838,18 @@ void goodNight(uint32_t seconds)
     CONSOLELN(String(F("\nStep-sleep: ")) + MAXSLEEPTIME + "s; left: " + left2sleep + "s; RT: " + millis());
     ESP.deepSleep(MAXSLEEPTIME * 1e6, WAKE_RF_DISABLED);
   }
-  // regular sleep with RF enabled after wakeup
+  // Final-sleep: RF styres af parameteren
   else
   {
-    // clearing RTC to mark next wake
-    left2sleep = 0;
+    left2sleep = 0; // marker næste wake som "worker run"
     ESP.rtcUserMemoryWrite(RTCSLEEPADDR, &left2sleep, sizeof(left2sleep));
     ESP.rtcUserMemoryWrite(RTCSLEEPADDR + 1, &validflag, sizeof(validflag));
     CONSOLELN(String(F("\nFinal-sleep: ")) + _seconds + "s; RT: " + millis());
-    // WAKE_RF_DEFAULT --> auto reconnect after wakeup
-    ESP.deepSleep(_seconds * 1e6, WAKE_RF_DEFAULT);
+    ESP.deepSleep(_seconds * 1e6, rfOnWake ? WAKE_RF_DEFAULT : WAKE_RF_DISABLED);
   }
-  // workaround proper power state init
-  delay(500);
+  delay(500); // stabil power state
 }
+
 void sleepManager()
 {
   uint32_t left2sleep, validflag;
@@ -862,7 +859,7 @@ void sleepManager()
   // check if we have to incarnate again
   if (left2sleep != 0 && !drd.detectDoubleReset() && validflag == RTCVALIDFLAG)
   {
-    goodNight(left2sleep);
+    goodNight(left2sleep, /*rfOnWake*/true);
   }
   else
   {
@@ -1306,6 +1303,21 @@ void setup()
 
     flasher.detach();
   }
+  // --- NYT: "Charging pose" check før WiFi bringes op ---
+  // Vi er kun her i normal-mode (ikke config), så respekterer double reset via reed-switch
+  Tilt = getTilt();  // bruger MPU6050, median osv.
+  if (Tilt < CHARGE_TILT_DEG) {
+    CONSOLELN(F("Charging pose detected (< ") + String(CHARGE_TILT_DEG) + F(" deg) -> ultra-sleep"));
+    // Sluk periferi
+    accelgyro.setSleepEnabled(true);
+    // WiFi helt af for at spare strøm (i tilfælde af at core har efterladt noget)
+    WiFi.mode(WIFI_OFF);
+    WiFi.forceSleepBegin();
+    delay(1);
+    // Sov med RF OFF og tjek igen om CHARGE_SLEEP_S sekunder
+    goodNight(CHARGE_SLEEP_S, /*rfOnWake=*/false);
+  }
+
   // to make sure we wake up with STA but AP
   WiFi.mode(WIFI_STA);
   Volt = getBattery();
@@ -1383,7 +1395,7 @@ void setup()
     myData.sleeptime = EMERGENCYSLEEP;
   }
 
-  goodNight(myData.sleeptime);
+  goodNight(myData.sleeptime, /*rfOnWake=*/true);
 }
 
 void loop()
