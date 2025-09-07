@@ -999,7 +999,7 @@ void WiFiManager::handleiSpindel()
   page += F("<dd>Date: ");
   page += __DATE__ " " __TIME__;
   page +=
-      F("</dd></dl><br>Firmware update:<br><a href='https://github.com/universam1'>github.com/universam1</a><hr>");
+      F("</dd></dl><br>Firmware update:<br><a href='" FWURL "'>" FWURL "</a><hr>");
   page += F("</dl>");
   page += FPSTR(HTTP_END);
 

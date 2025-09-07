@@ -21,6 +21,7 @@ extern Ticker flasher;
 
 // defines go here
 #define FIRMWAREVERSION "7.3.3-charge-sleep"
+#define FWURL "https://github.com/Nicolajelias/iSpindel"
 
 #define API_FHEM true
 #define API_UBIDOTS true
