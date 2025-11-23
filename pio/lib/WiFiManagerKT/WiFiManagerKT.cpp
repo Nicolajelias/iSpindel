@@ -198,6 +198,10 @@ void WiFiManager::setupConfigPortal()
   server->on("/update", HTTP_POST, std::bind(&WiFiManager::handleUpdateDone, this),
              std::bind(&WiFiManager::handleUpdating, this));
   server->onNotFound(std::bind(&WiFiManager::handleNotFound, this));
+  if (_serverInitCallback)
+  {
+    _serverInitCallback(*server);
+  }
   server->begin(); // Web server start
   DEBUG_WM(F("HTTP server started"));
 }
@@ -1266,6 +1270,11 @@ void WiFiManager::setAPCallback(void (*func)(WiFiManager *myWiFiManager))
 void WiFiManager::setSaveConfigCallback(void (*func)(void))
 {
   _savecallback = func;
+}
+
+void WiFiManager::setServerInitCallback(std::function<void(ESP8266WebServer &)> func)
+{
+  _serverInitCallback = func;
 }
 
 //sets a custom element to add to head, like a new style tag

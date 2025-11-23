@@ -26,6 +26,7 @@ All rights reserverd by S.Lang <universam@web.de>
 #include <ESP8266WiFi.h> //https://github.com/esp8266/Arduino
 #include <FS.h>          //this needs to be first
 #include <LittleFS.h>
+#include <math.h>
 // !DEBUG 1
 
 // definitions go here
@@ -39,6 +40,7 @@ DoubleResetDetector drd(DRD_TIMEOUT, DRD_ADDRESS);
 
 int detectTempSensor(const uint8_t pins[]);
 bool testAccel();
+float getTilt();
 
 bool shouldSaveConfig = false;
 
@@ -51,9 +53,21 @@ bool hassio_changed = false;
 bool usehttps_changed = false;
 
 uint32_t DSreqTime = 0;
+static ESP8266WebServer *configServer = nullptr;
 
 int16_t ax, ay, az;
 float Volt, Temperatur, Tilt, Gravity;
+
+void initCalibrationDefaults()
+{
+  myData.calCount = 0;
+  for (int i = 0; i < CAL_POINTS; i++)
+  {
+    myData.calTilt[i] = NAN;
+    myData.calSG[i] = NAN;
+  }
+  myData.calSG[0] = 1.000f;
+}
 
 float scaleTemperatureFromC(float t, uint8_t tempscale)
 {
@@ -180,6 +194,45 @@ bool readConfig()
             myData.psk = (const char *)doc["PSK"];
           if (doc.containsKey("POLY"))
             strcpy(myData.polynominal, doc["POLY"]);
+          if (doc.containsKey("CalTilt"))
+          {
+            JsonArray arr = doc["CalTilt"].as<JsonArray>();
+            for (int i = 0; i < CAL_POINTS && i < (int)arr.size(); i++)
+            {
+              myData.calTilt[i] = arr[i] | NAN;
+            }
+          }
+          else
+          {
+            for (int i = 0; i < CAL_POINTS; i++)
+            {
+              myData.calTilt[i] = NAN;
+            }
+          }
+
+          if (doc.containsKey("CalSG"))
+          {
+            JsonArray arr = doc["CalSG"].as<JsonArray>();
+            for (int i = 0; i < CAL_POINTS && i < (int)arr.size(); i++)
+            {
+              myData.calSG[i] = arr[i] | NAN;
+            }
+          }
+          else
+          {
+            for (int i = 0; i < CAL_POINTS; i++)
+            {
+              myData.calSG[i] = NAN;
+            }
+          }
+
+          if (doc.containsKey("CalCount"))
+            myData.calCount = doc["CalCount"];
+          else
+            myData.calCount = 0;
+          if (myData.calCount > CAL_POINTS)
+            myData.calCount = CAL_POINTS;
+          myData.calSG[0] = 1.000f;
 #if API_MQTT_HASSIO
           if (doc.containsKey("Hassio"))
             myData.hassio = doc["Hassio"];
@@ -310,6 +363,293 @@ void postConfig()
 #endif
 }
 
+struct Poly3
+{
+  float a, b, c, d;
+  bool ok;
+};
+
+static bool solveLinear4x4(float A[4][4], float b[4], float x[4])
+{
+  float M[4][5];
+  for (int i = 0; i < 4; ++i)
+  {
+    for (int j = 0; j < 4; ++j)
+      M[i][j] = A[i][j];
+    M[i][4] = b[i];
+  }
+
+  for (int i = 0; i < 4; ++i)
+  {
+    int piv = i;
+    float maxA = fabs(M[i][i]);
+    for (int k = i + 1; k < 4; ++k)
+    {
+      float v = fabs(M[k][i]);
+      if (v > maxA)
+      {
+        maxA = v;
+        piv = k;
+      }
+    }
+    if (maxA < 1e-9f)
+      return false;
+
+    if (piv != i)
+    {
+      for (int j = i; j < 5; ++j)
+      {
+        float tmp = M[i][j];
+        M[i][j] = M[piv][j];
+        M[piv][j] = tmp;
+      }
+    }
+
+    float diag = M[i][i];
+    for (int j = i; j < 5; ++j)
+      M[i][j] /= diag;
+
+    for (int k = i + 1; k < 4; ++k)
+    {
+      float f = M[k][i];
+      if (fabs(f) > 0.0f)
+      {
+        for (int j = i; j < 5; ++j)
+          M[k][j] -= f * M[i][j];
+      }
+    }
+  }
+
+  for (int i = 3; i >= 0; --i)
+  {
+    float s = M[i][4];
+    for (int j = i + 1; j < 4; ++j)
+      s -= M[i][j] * x[j];
+    x[i] = s;
+  }
+
+  return true;
+}
+
+static Poly3 fitPoly3(const float *tilt, const float *y, int n)
+{
+  Poly3 res = {0, 0, 0, 0, false};
+  if (n < 4)
+    return res;
+
+  double s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0;
+  double sy0 = 0, sy1 = 0, sy2 = 0, sy3 = 0;
+
+  for (int i = 0; i < n; ++i)
+  {
+    double t = tilt[i];
+    double p = y[i];
+
+    double t2 = t * t;
+    double t3 = t2 * t;
+    double t4 = t2 * t2;
+    double t5 = t3 * t2;
+    double t6 = t3 * t3;
+
+    s0 += 1.0;
+    s1 += t;
+    s2 += t2;
+    s3 += t3;
+    s4 += t4;
+    s5 += t5;
+    s6 += t6;
+
+    sy0 += p;
+    sy1 += p * t;
+    sy2 += p * t2;
+    sy3 += p * t3;
+  }
+
+  float NXTX[4][4];
+  float NXTY[4];
+
+  NXTX[0][0] = (float)s6;
+  NXTX[0][1] = (float)s5;
+  NXTX[0][2] = (float)s4;
+  NXTX[0][3] = (float)s3;
+  NXTX[1][0] = (float)s5;
+  NXTX[1][1] = (float)s4;
+  NXTX[1][2] = (float)s3;
+  NXTX[1][3] = (float)s2;
+  NXTX[2][0] = (float)s4;
+  NXTX[2][1] = (float)s3;
+  NXTX[2][2] = (float)s2;
+  NXTX[2][3] = (float)s1;
+  NXTX[3][0] = (float)s3;
+  NXTX[3][1] = (float)s2;
+  NXTX[3][2] = (float)s1;
+  NXTX[3][3] = (float)s0;
+
+  NXTY[0] = (float)sy3;
+  NXTY[1] = (float)sy2;
+  NXTY[2] = (float)sy1;
+  NXTY[3] = (float)sy0;
+
+  float coef[4];
+  if (!solveLinear4x4(NXTX, NXTY, coef))
+  {
+    return res;
+  }
+
+  res.a = coef[0];
+  res.b = coef[1];
+  res.c = coef[2];
+  res.d = coef[3];
+  res.ok = true;
+  return res;
+}
+
+static float sgToPlato(float sg)
+{
+  return 135.997f * sg * sg * sg - 630.272f * sg * sg + 1111.14f * sg - 616.868f;
+}
+
+static void formatPoly3(const Poly3 &p, char *buffer, size_t buflen)
+{
+  snprintf(buffer, buflen, "%.9f*tilt^3%+.9f*tilt^2%+.9f*tilt%+.9f", (double)p.a, (double)p.b, (double)p.c,
+           (double)p.d);
+}
+
+bool updatePolynomialFromCalibration()
+{
+  float tiltBuf[CAL_POINTS];
+  float platoBuf[CAL_POINTS];
+  int n = 0;
+
+  for (int i = 0; i < CAL_POINTS; i++)
+  {
+    float t = myData.calTilt[i];
+    float sg = (i == 0) ? 1.000f : myData.calSG[i];
+    if (!isnan(t) && sg >= 0.99f && sg <= 1.25f)
+    {
+      tiltBuf[n] = t;
+      platoBuf[n] = sgToPlato(sg);
+      n++;
+    }
+  }
+
+  if (n < 4)
+  {
+    CONSOLELN(F("For få gyldige kalibreringspunkter (min 4)"));
+    return false;
+  }
+  if (n == 0)
+  {
+    CONSOLELN(F("Ingen gyldige kalibreringspunkter"));
+    return false;
+  }
+
+  Poly3 poly = fitPoly3(tiltBuf, platoBuf, n);
+  if (!poly.ok)
+  {
+    CONSOLELN(F("Kunne ikke beregne polynomium (singulær matrix?)"));
+    return false;
+  }
+
+  myData.calCount = n;
+
+  char polyBuf[256];
+  formatPoly3(poly, polyBuf, sizeof(polyBuf));
+
+  strncpy(myData.polynominal, polyBuf, sizeof(myData.polynominal));
+  myData.polynominal[sizeof(myData.polynominal) - 1] = '\0';
+
+  CONSOLE(F("Nyt polynomium: "));
+  CONSOLELN(myData.polynominal);
+
+  saveConfig();
+  return true;
+}
+
+void captureCalibrationPoint(uint8_t idx)
+{
+  if (idx >= CAL_POINTS)
+    return;
+  float t = getTilt();
+  myData.calTilt[idx] = t;
+  if (idx + 1 > myData.calCount)
+    myData.calCount = idx + 1;
+  saveConfig();
+}
+
+void handleCalCapture()
+{
+  if (configServer == nullptr)
+    return;
+  if (!configServer->hasArg("index"))
+  {
+    configServer->send(400, "text/plain", "Missing index");
+    return;
+  }
+  int idx = configServer->arg("index").toInt();
+  captureCalibrationPoint(idx);
+  configServer->send(200, "text/plain", "Captured tilt for index " + String(idx));
+}
+
+void handleCalCalc()
+{
+  if (configServer == nullptr)
+    return;
+
+  auto parseArgFloat = [&](const char *key) {
+    if (!configServer->hasArg(key))
+      return NAN;
+    String s = configServer->arg(key);
+    s.trim();
+    s.replace(',', '.');
+    if (s.length() == 0)
+      return NAN;
+    return s.toFloat();
+  };
+
+  // Opdater kalibreringsfelter fra query-parametre hvis de er angivet
+  float calTiltTmp[CAL_POINTS];
+  float calSGTmp[CAL_POINTS];
+  for (int i = 0; i < CAL_POINTS; i++)
+  {
+    calTiltTmp[i] = myData.calTilt[i];
+    calSGTmp[i] = myData.calSG[i];
+  }
+
+  calTiltTmp[0] = parseArgFloat("calt0");
+  if (!isnan(calTiltTmp[0]))
+    myData.calTilt[0] = calTiltTmp[0];
+  myData.calSG[0] = 1.000f;
+
+  myData.calSG[1] = parseArgFloat("calsg1");
+  myData.calTilt[1] = parseArgFloat("calt1");
+  myData.calSG[2] = parseArgFloat("calsg2");
+  myData.calTilt[2] = parseArgFloat("calt2");
+  myData.calSG[3] = parseArgFloat("calsg3");
+  myData.calTilt[3] = parseArgFloat("calt3");
+  myData.calSG[4] = parseArgFloat("calsg4");
+  myData.calTilt[4] = parseArgFloat("calt4");
+  myData.calSG[5] = parseArgFloat("calsg5");
+  myData.calTilt[5] = parseArgFloat("calt5");
+
+  myData.calCount = 0;
+  for (int i = 0; i < CAL_POINTS; i++)
+  {
+    float sg = (i == 0) ? 1.000f : myData.calSG[i];
+    if (!isnan(myData.calTilt[i]) && sg > 0.0f)
+      myData.calCount = i + 1;
+  }
+
+  if (updatePolynomialFromCalibration())
+  {
+    configServer->send(200, "text/plain", "Polynomial updated: " + String(myData.polynominal));
+  }
+  else
+  {
+    configServer->send(500, "text/plain", "Error calculating polynomial (kræver min. 4 gyldige punkter; SG 0.99-1.25 og tilt må ikke være tom)");
+  }
+}
+
 bool startConfiguration()
 {
 
@@ -318,6 +658,11 @@ bool startConfiguration()
   wifiManager.setConfigPortalTimeout(PORTALTIMEOUT);
   wifiManager.setSaveConfigCallback(saveConfigCallback);
   wifiManager.setBreakAfterConfig(true);
+  wifiManager.setServerInitCallback([](ESP8266WebServer &server) {
+    configServer = &server;
+    server.on("/cal/capture", handleCalCapture);
+    server.on("/cal/calc", handleCalCalc);
+  });
 
   WiFiManagerParameter api_list(HTTP_API_LIST);
   WiFiManagerParameter custom_api("selAPI", "selAPI", String(myData.api).c_str(), 20, TYPE_HIDDEN, WFM_NO_LABEL);
@@ -384,6 +729,171 @@ bool startConfiguration()
   WiFiManagerParameter custom_polynom("POLYN", "Polynominal", htmlencode(myData.polynominal).c_str(), 250,
                                       WFM_NO_LABEL);
   wifiManager.addParameter(&custom_polynom);
+  WiFiManagerParameter cal_hdr("<hr><h3>Calibration (6 points)</h3>");
+  wifiManager.addParameter(&cal_hdr);
+  char tilt0[10];
+  char sg1[10], tilt1[10];
+  char sg2[10], tilt2[10];
+  char sg3[10], tilt3[10];
+  char sg4[10], tilt4[10];
+  char sg5[10], tilt5[10];
+
+  if (!isnan(myData.calTilt[0]))
+    snprintf(tilt0, sizeof(tilt0), "%.2f", myData.calTilt[0]);
+  else
+    tilt0[0] = '\0';
+
+  if (!isnan(myData.calSG[1]))
+    snprintf(sg1, sizeof(sg1), "%.3f", myData.calSG[1]);
+  else
+    sg1[0] = '\0';
+  if (!isnan(myData.calTilt[1]))
+    snprintf(tilt1, sizeof(tilt1), "%.2f", myData.calTilt[1]);
+  else
+    tilt1[0] = '\0';
+
+  if (!isnan(myData.calSG[2]))
+    snprintf(sg2, sizeof(sg2), "%.3f", myData.calSG[2]);
+  else
+    sg2[0] = '\0';
+  if (!isnan(myData.calTilt[2]))
+    snprintf(tilt2, sizeof(tilt2), "%.2f", myData.calTilt[2]);
+  else
+    tilt2[0] = '\0';
+
+  if (!isnan(myData.calSG[3]))
+    snprintf(sg3, sizeof(sg3), "%.3f", myData.calSG[3]);
+  else
+    sg3[0] = '\0';
+  if (!isnan(myData.calTilt[3]))
+    snprintf(tilt3, sizeof(tilt3), "%.2f", myData.calTilt[3]);
+  else
+    tilt3[0] = '\0';
+
+  if (!isnan(myData.calSG[4]))
+    snprintf(sg4, sizeof(sg4), "%.3f", myData.calSG[4]);
+  else
+    sg4[0] = '\0';
+  if (!isnan(myData.calTilt[4]))
+    snprintf(tilt4, sizeof(tilt4), "%.2f", myData.calTilt[4]);
+  else
+    tilt4[0] = '\0';
+
+  if (!isnan(myData.calSG[5]))
+    snprintf(sg5, sizeof(sg5), "%.3f", myData.calSG[5]);
+  else
+    sg5[0] = '\0';
+  if (!isnan(myData.calTilt[5]))
+    snprintf(tilt5, sizeof(tilt5), "%.2f", myData.calTilt[5]);
+  else
+    tilt5[0] = '\0';
+
+  WiFiManagerParameter cal_tilt0("CALT0", "Tilt punkt 1 (rent vand)", tilt0, sizeof(tilt0));
+  WiFiManagerParameter cal_sg1("CALSG1", "SG punkt 2 (fx 1.040)", sg1, sizeof(sg1));
+  WiFiManagerParameter cal_tilt1("CALT1", "Tilt punkt 2 (auto)", tilt1, sizeof(tilt1));
+  WiFiManagerParameter cal_sg2("CALSG2", "SG punkt 3 (fx 1.040)", sg2, sizeof(sg2));
+  WiFiManagerParameter cal_tilt2("CALT2", "Tilt punkt 3 (auto)", tilt2, sizeof(tilt2));
+  WiFiManagerParameter cal_sg3("CALSG3", "SG punkt 4 (fx 1.040)", sg3, sizeof(sg3));
+  WiFiManagerParameter cal_tilt3("CALT3", "Tilt punkt 4 (auto)", tilt3, sizeof(tilt3));
+  WiFiManagerParameter cal_sg4("CALSG4", "SG punkt 5 (fx 1.040)", sg4, sizeof(sg4));
+  WiFiManagerParameter cal_tilt4("CALT4", "Tilt punkt 5 (auto)", tilt4, sizeof(tilt4));
+  WiFiManagerParameter cal_sg5("CALSG5", "SG punkt 6 (fx 1.040)", sg5, sizeof(sg5));
+  WiFiManagerParameter cal_tilt5("CALT5", "Tilt punkt 6 (auto)", tilt5, sizeof(tilt5));
+  wifiManager.addParameter(&cal_tilt0);
+  wifiManager.addParameter(&cal_sg1);
+  wifiManager.addParameter(&cal_tilt1);
+  wifiManager.addParameter(&cal_sg2);
+  wifiManager.addParameter(&cal_tilt2);
+  wifiManager.addParameter(&cal_sg3);
+  wifiManager.addParameter(&cal_tilt3);
+  wifiManager.addParameter(&cal_sg4);
+  wifiManager.addParameter(&cal_tilt4);
+  wifiManager.addParameter(&cal_sg5);
+  wifiManager.addParameter(&cal_tilt5);
+  wifiManager.setCustomHeadElement(
+      "<style>"
+      ".cal-box{border:1px solid #ccc;padding:12px;margin-top:12px;border-radius:4px;}"
+      ".cal-box legend{font-weight:bold;padding:0 6px;}"
+      ".cal-box p{margin:6px 0;}"
+      ".cal-table{width:100%;border-collapse:collapse;margin-top:8px;}"
+      ".cal-table th,.cal-table td{padding:6px 4px;border-bottom:1px solid #e0e0e0;text-align:left;}"
+      ".cal-table th{text-align:left;font-weight:bold;}"
+      ".cal-input{width:100%;padding:6px;border:1px solid #ccc;border-radius:3px;box-sizing:border-box;}"
+      ".cal-btn{display:inline-block;padding:6px 10px;margin:2px 0;border:1px solid #1976d2;border-radius:4px;"
+      "text-decoration:none;color:#1976d2;font-size:14px;}"
+      ".cal-btn:hover{background:#e3f2fd;}"
+      ".cal-btn-primary{background:#1976d2;color:#fff;border-color:#11508f;}"
+      ".cal-btn-primary:hover{background:#11508f;}"
+      ".cal-note{font-size:12px;color:#444;margin-top:4px;}"
+      ".cal-readonly{background:#f7f7f7;}"
+      "</style>");
+
+  static const char CAL_DASHBOARD_HTML[] PROGMEM = R"rawliteral(
+<fieldset class="cal-box"><legend>Kalibrering (iSpindel)</legend>
+<p>Punkt 0 er vandkalibrering (rent vand, SG=1.000). Tryk "Opdater vinkel" når spindlen ligger stabilt i opløsningen.</p>
+<p>Opdater vinkler for hvert punkt, indtast SG for punkterne 1–5, og afslut med "Beregn og gem polynomium".</p>
+<table class="cal-table">
+<tr><th>Punkt</th><th>SG</th><th>Tilt (°)</th><th>Handling</th></tr>
+<tr>
+<td>0 (vand)</td>
+<td>1.000 (rent vand)</td>
+<td id="cell-tilt0"></td>
+<td><a class="cal-btn" href="/cal/capture?index=0">Opdater vinkel</a></td>
+</tr>
+<tr>
+<td>1</td>
+<td id="cell-sg1"></td>
+<td id="cell-tilt1"></td>
+<td><a class="cal-btn" href="/cal/capture?index=1">Opdater vinkel</a></td>
+</tr>
+<tr>
+<td>2</td>
+<td id="cell-sg2"></td>
+<td id="cell-tilt2"></td>
+<td><a class="cal-btn" href="/cal/capture?index=2">Opdater vinkel</a></td>
+</tr>
+<tr>
+<td>3</td>
+<td id="cell-sg3"></td>
+<td id="cell-tilt3"></td>
+<td><a class="cal-btn" href="/cal/capture?index=3">Opdater vinkel</a></td>
+</tr>
+<tr>
+<td>4</td>
+<td id="cell-sg4"></td>
+<td id="cell-tilt4"></td>
+<td><a class="cal-btn" href="/cal/capture?index=4">Opdater vinkel</a></td>
+</tr>
+<tr>
+<td>5</td>
+<td id="cell-sg5"></td>
+<td id="cell-tilt5"></td>
+<td><a class="cal-btn" href="/cal/capture?index=5">Opdater vinkel</a></td>
+</tr>
+</table>
+<div style="margin-top:10px;">
+<button class="cal-btn cal-btn-primary" type="button" onclick="submitCalc()">Beregn og gem polynomium</button>
+<div class="cal-note">Kræver min. 4 gyldige punkter. Resultatet gemmes og bruges til Plato/SG-beregning.</div>
+</div>
+<script>(function(){
+function move(id, cellId){var el=document.getElementById(id);var cell=document.getElementById(cellId);if(!el||!cell)return;var lbl=document.querySelector('label[for=\"'+id+'\"]');if(lbl){lbl.style.display='none';}el.className='cal-input';cell.appendChild(el);}
+function submitCalc(){var ids=['calt0','calsg1','calt1','calsg2','calt2','calsg3','calt3','calsg4','calt4','calsg5','calt5'];var map={'calt0':'CALT0','calsg1':'CALSG1','calt1':'CALT1','calsg2':'CALSG2','calt2':'CALT2','calsg3':'CALSG3','calt3':'CALT3','calsg4':'CALSG4','calt4':'CALT4','calsg5':'CALSG5','calt5':'CALT5'};var params=[];ids.forEach(function(k){var el=document.getElementById(map[k]);if(el){params.push(k+'='+encodeURIComponent(el.value||''));}});window.location.href='/cal/calc?'+params.join('&');}
+move('CALT0','cell-tilt0');
+move('CALSG1','cell-sg1');
+move('CALT1','cell-tilt1');
+move('CALSG2','cell-sg2');
+move('CALT2','cell-tilt2');
+move('CALSG3','cell-sg3');
+move('CALT3','cell-tilt3');
+move('CALSG4','cell-sg4');
+move('CALT4','cell-tilt4');
+move('CALSG5','cell-sg5');
+move('CALT5','cell-tilt5');
+})();</script>
+</fieldset>
+)rawliteral";
+  WiFiManagerParameter cal_dashboard(CAL_DASHBOARD_HTML);
+  wifiManager.addParameter(&cal_dashboard);
 
   wifiManager.setConfSSID(htmlencode(myData.ssid));
   wifiManager.setConfPSK(htmlencode(myData.psk));
@@ -399,8 +909,39 @@ bool startConfiguration()
   }
 
   wifiManager.startConfigPortal(ssid);
+  configServer = nullptr;
 
   strcpy(myData.polynominal, custom_polynom.getValue());
+  auto parseFloatValue = [](const char *val) {
+    String s = val;
+    s.trim();
+    s.replace(',', '.');
+    if (s.length() == 0)
+      return NAN;
+    return s.toFloat();
+  };
+
+  myData.calSG[0] = 1.000f;
+  myData.calSG[1] = parseFloatValue(cal_sg1.getValue());
+  myData.calSG[2] = parseFloatValue(cal_sg2.getValue());
+  myData.calSG[3] = parseFloatValue(cal_sg3.getValue());
+  myData.calSG[4] = parseFloatValue(cal_sg4.getValue());
+  myData.calSG[5] = parseFloatValue(cal_sg5.getValue());
+
+  myData.calTilt[0] = parseFloatValue(cal_tilt0.getValue());
+  myData.calTilt[1] = parseFloatValue(cal_tilt1.getValue());
+  myData.calTilt[2] = parseFloatValue(cal_tilt2.getValue());
+  myData.calTilt[3] = parseFloatValue(cal_tilt3.getValue());
+  myData.calTilt[4] = parseFloatValue(cal_tilt4.getValue());
+  myData.calTilt[5] = parseFloatValue(cal_tilt5.getValue());
+
+  myData.calCount = 0;
+  for (int i = 0; i < CAL_POINTS; i++)
+  {
+    float sg = (i == 0) ? 1.000f : myData.calSG[i];
+    if (!isnan(myData.calTilt[i]) && sg > 0.0f)
+      myData.calCount = i + 1;
+  }
 
   validateInput(custom_name.getValue(), myData.name);
   validateInput(custom_token.getValue(), myData.token);
@@ -497,7 +1038,7 @@ bool saveConfig()
     }
   }
 
-  DynamicJsonDocument doc(2048);
+  DynamicJsonDocument doc(3072);
 
   doc["Name"] = myData.name;
   doc["Token"] = myData.token;
@@ -523,6 +1064,15 @@ bool saveConfig()
   doc["POLY"] = myData.polynominal;
   doc["SSID"] = WiFi.SSID();
   doc["PSK"] = WiFi.psk();
+
+  JsonArray calTiltArr = doc.createNestedArray("CalTilt");
+  JsonArray calSGArr = doc.createNestedArray("CalSG");
+  for (int i = 0; i < CAL_POINTS; i++)
+  {
+    calTiltArr.add(myData.calTilt[i]);
+    calSGArr.add(myData.calSG[i]);
+  }
+  doc["CalCount"] = myData.calCount;
 
   JsonArray array = doc.createNestedArray("Offset");
   for (auto &&i : myData.Offset)
@@ -1251,6 +1801,8 @@ void setup()
   CONSOLELN(F("\nFW " FIRMWAREVERSION));
   CONSOLELN(ESP.getSdkVersion());
 
+  initCalibrationDefaults();
+
   sleepManager();
 
   bool validConf = readConfig();
@@ -1266,7 +1818,8 @@ void setup()
 #endif
 
   // decide whether we want configuration mode or normal mode
-  if (shouldStartConfig(validConf))
+  bool configMode = shouldStartConfig(validConf);
+  if (configMode)
   {
     uint32_t tmp;
     ESP.rtcUserMemoryRead(WIFIENADDR, &tmp, sizeof(tmp));
@@ -1287,7 +1840,8 @@ void setup()
       ESP.rtcUserMemoryWrite(WIFIENADDR, &tmp, sizeof(tmp));
     }
 
-    flasher.attach(1, flash);
+    // Vi undlader flasher/flash()-ticker i config-mode for at undgå sensorkald,
+    // der kan trigge fejl mens portalen er åben.
 
     // rescue if wifi credentials lost because of power loss
     if (!startConfiguration())
@@ -1301,21 +1855,27 @@ void setup()
     uint32_t left2sleep = 0;
     ESP.rtcUserMemoryWrite(RTCSLEEPADDR, &left2sleep, sizeof(left2sleep));
 
-    flasher.detach();
+    CONSOLELN(F("Config portal closed, restarting..."));
+    ESP.restart();
+    delay(500);
   }
   // --- NYT: "Charging pose" check før WiFi bringes op ---
-  // Vi er kun her i normal-mode (ikke config), så respekterer double reset via reed-switch
-  Tilt = getTilt();  // bruger MPU6050, median osv.
-  if (Tilt < CHARGE_TILT_DEG) {
-    CONSOLELN(F("Charging pose detected (< ") + String(CHARGE_TILT_DEG) + F(" deg) -> ultra-sleep"));
-    // Sluk periferi
-    accelgyro.setSleepEnabled(true);
-    // WiFi helt af for at spare strøm (i tilfælde af at core har efterladt noget)
-    WiFi.mode(WIFI_OFF);
-    WiFi.forceSleepBegin();
-    delay(1);
-    // Sov med RF OFF og tjek igen om CHARGE_SLEEP_S sekunder
-    goodNight(CHARGE_SLEEP_S, /*rfOnWake=*/false);
+  // Skippes hvis vi lige har været i config-mode (for at holde AP kørende).
+  if (!configMode)
+  {
+    Tilt = getTilt(); // bruger MPU6050, median osv.
+    if (Tilt < CHARGE_TILT_DEG)
+    {
+      CONSOLELN(F("Charging pose detected (< ") + String(CHARGE_TILT_DEG) + F(" deg) -> ultra-sleep"));
+      // Sluk periferi
+      accelgyro.setSleepEnabled(true);
+      // WiFi helt af for at spare strøm (i tilfælde af at core har efterladt noget)
+      WiFi.mode(WIFI_OFF);
+      WiFi.forceSleepBegin();
+      delay(1);
+      // Sov med RF OFF og tjek igen om CHARGE_SLEEP_S sekunder
+      goodNight(CHARGE_SLEEP_S, /*rfOnWake=*/false);
+    }
   }
 
   // to make sure we wake up with STA but AP

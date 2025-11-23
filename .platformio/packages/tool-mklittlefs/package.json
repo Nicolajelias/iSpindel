@@ -1,0 +1,18 @@
+{
+  "name": "tool-mklittlefs",
+  "version": "1.203.210628",
+  "description": "Utility for creating littlefs images for upload on the ESP8266",
+  "keywords": [
+    "tools",
+    "build tools",
+    "filesystem"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/earlephilhower/mklittlefs"
+  },
+  "system": [
+    "linux_x86_64"
+  ]
+}

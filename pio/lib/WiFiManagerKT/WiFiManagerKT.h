@@ -23,6 +23,7 @@
 #undef min
 #undef max
 #include <algorithm>
+#include <functional>
 extern "C" {
 #include "user_interface.h"
 }
@@ -135,7 +136,7 @@ const char HTTP_END[] PROGMEM = "</div></body></html>";
 const char HTTP_UPDATE_FAI[] PROGMEM = "Update Failed!";
 const char HTTP_UPDATE_SUC[] PROGMEM = "Update Success! Rebooting...";
 
-#define WIFI_MANAGER_MAX_PARAMS 25
+#define WIFI_MANAGER_MAX_PARAMS 50
 
 class WiFiManagerParameter
 {
@@ -205,6 +206,7 @@ public:
   void setAPCallback(void (*func)(WiFiManager *));
   //called when settings have been changed and connection was successful
   void setSaveConfigCallback(void (*func)(void));
+  void setServerInitCallback(std::function<void(ESP8266WebServer &)> func);
   //adds a custom parameter
   void addParameter(WiFiManagerParameter *p);
   //if this is set, it will exit after config, even if connection is unsucessful.
@@ -298,6 +300,7 @@ private:
 
   void (*_apcallback)(WiFiManager *) = NULL;
   void (*_savecallback)(void) = NULL;
+  std::function<void(ESP8266WebServer &)> _serverInitCallback = nullptr;
 
   WiFiManagerParameter *_params[WIFI_MANAGER_MAX_PARAMS];
 

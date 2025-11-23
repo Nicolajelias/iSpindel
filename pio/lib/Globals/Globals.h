@@ -20,7 +20,7 @@
 extern Ticker flasher;
 
 // defines go here
-#define FIRMWAREVERSION "7.3.3-charge-sleep"
+#define FIRMWAREVERSION "7.3.4-poly-calc"
 #define FWURL "https://github.com/Nicolajelias/iSpindel"
 
 #define API_FHEM true
@@ -85,6 +85,8 @@ extern Ticker flasher;
 
 #define CBP_ENDPOINT "/api/hydrometer/v1/data"
 
+#define CAL_POINTS 6
+
 #define DTUbiDots 0
 #define DTThingspeak 1
 #define DTCraftBeerPi 2
@@ -147,7 +149,10 @@ struct iData
   char password[DNSSIZE];
   char job[TKIDSIZE] = "ispindel";
   char instance[TKIDSIZE] = "000";
-  char polynominal[1000] = "-0.00031*tilt^2+0.557*tilt-14.054";
+  char polynominal[256] = "-0.00031*tilt^2+0.557*tilt-14.054";
+  float calTilt[CAL_POINTS];
+  float calSG[CAL_POINTS];
+  uint8_t calCount = 0;
   String ssid;
   String psk;
   uint8_t api;
