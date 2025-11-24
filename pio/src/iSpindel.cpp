@@ -831,10 +831,10 @@ bool startConfiguration()
       "if(window._calInit)return;"
       "var form=document.querySelector('form');"
       "if(!form)return;"
-      "if(!document.getElementById('POLYN'))return;" // only on config page
-      "if(document.getElementById('cal-dashboard')){window._calInit=true;return;}"
-      "var html='"
-      "<fieldset id=\"cal-dashboard\" class=\"cal-box\"><legend>Kalibrering (iSpindel)</legend>"
+      "if(!document.getElementById('POLYN'))return;" // only config page
+      "if(!document.getElementById('cal-dashboard')){"
+      "form.insertAdjacentHTML('beforeend',"
+      "'<fieldset id=\"cal-dashboard\" class=\"cal-box\"><legend>Kalibrering (iSpindel)</legend>"
       "<p>Punkt 0 er vandkalibrering (rent vand, SG=1.000). Tryk \"Opdater vinkel\" når spindlen ligger stabilt i opløsningen.</p>"
       "<p>Opdater vinkler for hvert punkt, indtast SG for punkterne 1–5, og afslut med \"Beregn og gem polynomium\".</p>"
       "<table class=\"cal-table\">"
@@ -860,22 +860,16 @@ bool startConfiguration()
       "</table><div style=\"margin-top:10px;\">"
       "<button class=\"cal-btn cal-btn-primary\" type=\"button\" onclick=\"submitCalc()\">Beregn og gem polynomium</button>"
       "<div class=\"cal-note\">Kræver min. 4 gyldige punkter. Resultatet gemmes og bruges til Plato/SG-beregning.</div>"
-      "</div></fieldset>';"
-      "if(typeof window.ensureCalFuncs!=='function'){"
-      "window.ensureCalFuncs=function(){"
-      "if(window._calInit)return;"
-      "window._calInit=true;"
+      "</div></fieldset>'"
+      ");}"
       "var map={visCALT0:'CALT0',visCALSG1:'CALSG1',visCALT1:'CALT1',visCALSG2:'CALSG2',visCALT2:'CALT2',visCALSG3:'CALSG3',visCALT3:'CALT3',visCALSG4:'CALSG4',visCALT4:'CALT4',visCALSG5:'CALSG5',visCALT5:'CALT5'};"
-      "window.syncFromHidden=function(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){vis.value=h.value;}});var sg0=document.getElementById('visCALSG0');if(sg0&&!sg0.value)sg0.value='1.000';};"
-      "window.syncToHidden=function(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){h.value=vis.value;}});};"
+      "function syncFromHidden(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){vis.value=h.value;}});var sg0=document.getElementById('visCALSG0');if(sg0&&!sg0.value)sg0.value='1.000';}"
+      "function syncToHidden(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){h.value=vis.value;}});}"
       "window.submitCalc=function(){syncToHidden();var ids=['visCALT0','visCALSG1','visCALT1','visCALSG2','visCALT2','visCALSG3','visCALT3','visCALSG4','visCALT4','visCALSG5','visCALT5'];var params=[];var mapSend={'visCALT0':'calt0','visCALSG1':'calsg1','visCALT1':'calt1','visCALSG2':'calsg2','visCALT2':'calt2','visCALSG3':'calsg3','visCALT3':'calt3','visCALSG4':'calsg4','visCALT4':'calt4','visCALSG5':'calsg5','visCALT5':'calt5'};ids.forEach(function(id){var el=document.getElementById(id);if(el){params.push(mapSend[id]+'='+encodeURIComponent(el.value||''));}});fetch('/cal/calc?'+params.join('&')).then(function(r){return r.text();}).then(function(txt){alert(txt);var poly=document.getElementById('POLYN');if(poly&&txt.indexOf('Polynomial updated:')===0){poly.value=txt.replace('Polynomial updated: ','');}}).catch(function(){alert('Fejl ved beregning');});};"
       "window.captureTilt=function(idx){fetch('/cal/capture?index='+idx).then(function(r){return r.json();}).then(function(data){var vis=document.getElementById('visCALT'+idx);if(vis&&data&&data.tilt!==undefined){vis.value=parseFloat(data.tilt).toFixed(2);syncToHidden();}}).catch(function(){});};"
-      "document.addEventListener('DOMContentLoaded',function(){syncFromHidden();var form=document.querySelector('form');if(form){form.addEventListener('submit',function(){syncToHidden();});}});"
       "syncFromHidden();"
-      "};"
-      "}"
-      "form.insertAdjacentHTML('beforeend',html);"
-      "ensureCalFuncs();"
+      "if(form){form.addEventListener('submit',function(){syncToHidden();});}"
+      "window._calInit=true;"
       "});"
       "</script>");
 
@@ -1522,6 +1516,7 @@ bool isDS18B20ready()
 void initAccel()
 {
   // join I2C bus (I2Cdev library doesn't do this automatically)
+  // GY-521 wiring per doc: SDA=D3 (GPIO0), SCL=D4 (GPIO2)
   Wire.begin(D3, D4);
   Wire.setClock(100000);
   Wire.setClockStretchLimit(2 * 230);

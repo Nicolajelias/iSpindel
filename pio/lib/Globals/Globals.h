@@ -72,7 +72,7 @@ extern Ticker flasher;
 #define OW_PINS                                                                                                        \
   (const uint8_t[])                                                                                                    \
   {                                                                                                                    \
-    D1, D6                                                                                                             \
+    D6                                                                                                                 \
   }
 #define RESOLUTION 12 // 12bit resolution == 750ms update rate
 #define OWinterval (760 / (1 << (12 - RESOLUTION)))

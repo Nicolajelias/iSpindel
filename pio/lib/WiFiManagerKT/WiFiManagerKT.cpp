@@ -707,7 +707,7 @@ void WiFiManager::handleWifi()
   page += _pass;
   page += FPSTR(HTTP_FORM_START3);
 
-  char parLength[2];
+  char parLength[8];
   // add the extra parameters to the form
   for (int i = 0; i < _paramsCount; i++)
   {
@@ -739,7 +739,7 @@ void WiFiManager::handleWifi()
       pitem.replace("{i}", _params[i]->getID());
       pitem.replace("{n}", _params[i]->getID());
       pitem.replace("{p}", _params[i]->getPlaceholder());
-      snprintf(parLength, 2, "%d", _params[i]->getValueLength());
+      snprintf(parLength, sizeof(parLength), "%d", _params[i]->getValueLength());
       pitem.replace("{l}", parLength);
       pitem.replace("{v}", _params[i]->getValue());
       pitem.replace("{c}", customHTML);
