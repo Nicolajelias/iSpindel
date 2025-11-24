@@ -729,8 +729,6 @@ bool startConfiguration()
   WiFiManagerParameter custom_polynom("POLYN", "Polynominal", htmlencode(myData.polynominal).c_str(), 250,
                                       WFM_NO_LABEL);
   wifiManager.addParameter(&custom_polynom);
-  WiFiManagerParameter cal_hdr("<hr><h3>Calibration (6 points)</h3>");
-  wifiManager.addParameter(&cal_hdr);
   char tilt0[10];
   char sg1[10], tilt1[10];
   char sg2[10], tilt2[10];
@@ -827,21 +825,6 @@ bool startConfiguration()
       ".cal-note{font-size:12px;color:#444;margin-top:4px;}"
       ".cal-readonly{background:#f7f7f7;}"
       "</style>");
-  // Ekstra kontrolpanel med knapper, hvis dash ikke renderes korrekt
-  WiFiManagerParameter cal_buttons_plain(
-      "<div style=\"border:1px solid #ccc;padding:8px;margin:8px 0;border-radius:4px;\">"
-      "<b>Kalibreringskontrol</b><br>"
-      "<button type=\"button\" onclick=\"captureTilt(0)\">Capture tilt punkt 1 (vand)</button><br>"
-      "<button type=\"button\" onclick=\"captureTilt(1)\">Capture tilt punkt 2</button><br>"
-      "<button type=\"button\" onclick=\"captureTilt(2)\">Capture tilt punkt 3</button><br>"
-      "<button type=\"button\" onclick=\"captureTilt(3)\">Capture tilt punkt 4</button><br>"
-      "<button type=\"button\" onclick=\"captureTilt(4)\">Capture tilt punkt 5</button><br>"
-      "<button type=\"button\" onclick=\"captureTilt(5)\">Capture tilt punkt 6</button><br>"
-      "<button type=\"button\" onclick=\"submitCalc()\" style=\"margin-top:6px;\">Beregn og gem polynomium</button>"
-      "<div style=\"font-size:12px;color:#444;\">Bruger de aktuelle SG/tilt-felter.</div>"
-      "</div>",
-      "cal_buttons_plain", "", 0, WFM_NO_LABEL);
-  wifiManager.addParameter(&cal_buttons_plain);
 
   static const char CAL_DASHBOARD_HTML[] PROGMEM = R"rawliteral(
 <fieldset class="cal-box"><legend>Kalibrering (iSpindel)</legend>
@@ -851,7 +834,7 @@ bool startConfiguration()
 <tr><th>Punkt</th><th>SG</th><th>Tilt (°)</th><th>Handling</th></tr>
 <tr>
 <td>0 (vand)</td>
-<td>1.000 (rent vand)</td>
+<td id="cell-sg0"></td>
 <td id="cell-tilt0"></td>
 <td><button class="cal-btn" type="button" onclick="captureTilt(0)">Opdater vinkel</button></td>
 </tr>
@@ -892,19 +875,11 @@ bool startConfiguration()
 </div>
 <script>(function(){
 function move(id, cellId){var el=document.getElementById(id);var cell=document.getElementById(cellId);if(!el||!cell)return;var lbl=document.querySelector('label[for=\"'+id+'\"]');if(lbl){lbl.style.display='none';}el.className='cal-input';cell.appendChild(el);}
+function moveAll(){var pairs=[['CALSG0','cell-sg0'],['CALT0','cell-tilt0'],['CALSG1','cell-sg1'],['CALT1','cell-tilt1'],['CALSG2','cell-sg2'],['CALT2','cell-tilt2'],['CALSG3','cell-sg3'],['CALT3','cell-tilt3'],['CALSG4','cell-sg4'],['CALT4','cell-tilt4'],['CALSG5','cell-sg5'],['CALT5','cell-tilt5']];pairs.forEach(function(p){move(p[0],p[1]);});var sg0=document.getElementById('CALSG0');if(sg0){sg0.value='1.000';sg0.readOnly=true;sg0.className='cal-input cal-readonly';}}
 function submitCalc(){var ids=['calt0','calsg1','calt1','calsg2','calt2','calsg3','calt3','calsg4','calt4','calsg5','calt5'];var map={'calt0':'CALT0','calsg1':'CALSG1','calt1':'CALT1','calsg2':'CALSG2','calt2':'CALT2','calsg3':'CALSG3','calt3':'CALT3','calsg4':'CALSG4','calt4':'CALT4','calsg5':'CALSG5','calt5':'CALT5'};var params=[];ids.forEach(function(k){var el=document.getElementById(map[k]);if(el){params.push(k+'='+encodeURIComponent(el.value||''));}});fetch('/cal/calc?'+params.join('&')).then(function(r){return r.text();}).then(function(txt){alert(txt);var poly=document.getElementById('POLYN');if(poly&&txt.indexOf('Polynomial updated:')===0){poly.value=txt.replace('Polynomial updated: ','');}}).catch(function(){alert('Fejl ved beregning');});}
-function captureTilt(idx){fetch('/cal/capture?index='+idx).then(function(r){return r.json();}).then(function(data){var el=document.getElementById('CALT'+idx);if(el&&data && data.tilt!==undefined){el.value=parseFloat(data.tilt).toFixed(2);} }).catch(function(){/* ignore */});}
-move('CALT0','cell-tilt0');
-move('CALSG1','cell-sg1');
-move('CALT1','cell-tilt1');
-move('CALSG2','cell-sg2');
-move('CALT2','cell-tilt2');
-move('CALSG3','cell-sg3');
-move('CALT3','cell-tilt3');
-move('CALSG4','cell-sg4');
-move('CALT4','cell-tilt4');
-move('CALSG5','cell-sg5');
-move('CALT5','cell-tilt5');
+function captureTilt(idx){fetch('/cal/capture?index='+idx).then(function(r){return r.json();}).then(function(data){var el=document.getElementById('CALT'+idx);if(el&&data&&data.tilt!==undefined){el.value=parseFloat(data.tilt).toFixed(2);} }).catch(function(){});}
+window.submitCalc=submitCalc;window.captureTilt=captureTilt;
+moveAll();document.addEventListener('DOMContentLoaded',function(){moveAll();});
 })();</script>
 </fieldset>
 )rawliteral";
@@ -1584,21 +1559,29 @@ float getTilt()
 
 float getTemperature(bool block = false)
 {
-  float t = Temperatur;
+  float cached = Temperatur;
+
+  // ensure a conversion is in flight
+  if (!DSreqTime)
+  {
+    requestTemp();
+    DSreqTime = millis();
+  }
 
   // we need to wait for DS18b20 to finish conversion
-  if (!DSreqTime || (!block && !isDS18B20ready()))
-    return t;
+  if (!block && !isDS18B20ready())
+    return cached;
 
   // if we need the result we have to block
   while (!isDS18B20ready())
     delay(10);
   DSreqTime = 0;
 
-  t = DS18B20.getTempCByIndex(0);
+  float t = DS18B20.getTempCByIndex(0);
 
   if (t == DEVICE_DISCONNECTED_C || // DISCONNECTED
-      t == 85.0)                    // we read 85 uninitialized
+      t == 85.0 ||                  // we read 85 uninitialized
+      isnan(t))
   {
     CONSOLELN(F("ERROR: OW DISCONNECTED"));
     pinMode(myData.OWpin, OUTPUT);
@@ -1608,10 +1591,38 @@ float getTemperature(bool block = false)
 
     CONSOLELN(F("OW Retry"));
     initDS18B20();
+    requestTemp();
     delay(OWinterval);
-    t = getTemperature(false);
+    DSreqTime = 0;
+    t = DS18B20.getTempCByIndex(0);
+    if (t == DEVICE_DISCONNECTED_C || t == 85.0 || isnan(t))
+    {
+      CONSOLELN(F("OW retry failed, keeping last temperature"));
+      return cached; // keep previous valid reading
+    }
   }
 
+  Temperatur = t;
+  return t;
+}
+
+// Blocking helper to read temperature immediately (used by info page in config portal)
+float readTemperatureBlocking()
+{
+  requestTemp();
+  delay(OWinterval + 50);
+  DSreqTime = 0;
+
+  float t = DS18B20.getTempCByIndex(0);
+  if (t == DEVICE_DISCONNECTED_C || t == 85.0)
+  {
+    CONSOLELN(F("ERROR: OW DISCONNECTED (info page)"));
+    initDS18B20();
+    requestTemp();
+    delay(OWinterval + 50);
+    t = DS18B20.getTempCByIndex(0);
+  }
+  Temperatur = t;
   return t;
 }
 
@@ -1866,6 +1877,9 @@ void setup()
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, HIGH);
     flasher.attach(0.5, flashConfig);
+    // Frisk data og ryd dobbelt-reset-flag, så et enkelt tryk ikke tolkes som dobbelt, mens portalen er åben
+    flash();
+    drd.stop();
 
     // rescue if wifi credentials lost because of power loss
     if (!startConfiguration())

@@ -20,6 +20,14 @@
 
 #include "WiFiManagerKT.h"
 
+// Sensor helpers provided by main firmware
+float getTilt();
+float getTemperature(bool block = false);
+void requestTemp();
+float getBattery();
+float calculateGravity();
+float readTemperatureBlocking();
+
 MPUOffset offset;
 
 WiFiManagerParameter::WiFiManagerParameter(const char *custom)
@@ -970,6 +978,12 @@ void WiFiManager::handleiSpindel()
 
   // we reset the timeout
   _configPortalStart = millis();
+
+  // Refresh live readings before rendering the info page
+  Tilt = getTilt();
+  Temperatur = readTemperatureBlocking();
+  Volt = getBattery();
+  Gravity = calculateGravity();
 
   String page = FPSTR(HTTP_HEADER);
   page.replace("{v}", "Info");
