@@ -136,7 +136,7 @@ const char HTTP_END[] PROGMEM = "</div></body></html>";
 const char HTTP_UPDATE_FAI[] PROGMEM = "Update Failed!";
 const char HTTP_UPDATE_SUC[] PROGMEM = "Update Success! Rebooting...";
 
-#define WIFI_MANAGER_MAX_PARAMS 50
+#define WIFI_MANAGER_MAX_PARAMS 100
 
 class WiFiManagerParameter
 {

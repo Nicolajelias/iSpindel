@@ -786,17 +786,18 @@ bool startConfiguration()
   else
     tilt5[0] = '\0';
 
-  WiFiManagerParameter cal_tilt0("CALT0", "Tilt punkt 1 (rent vand)", tilt0, sizeof(tilt0));
-  WiFiManagerParameter cal_sg1("CALSG1", "SG punkt 2 (fx 1.040)", sg1, sizeof(sg1));
-  WiFiManagerParameter cal_tilt1("CALT1", "Tilt punkt 2 (auto)", tilt1, sizeof(tilt1));
-  WiFiManagerParameter cal_sg2("CALSG2", "SG punkt 3 (fx 1.040)", sg2, sizeof(sg2));
-  WiFiManagerParameter cal_tilt2("CALT2", "Tilt punkt 3 (auto)", tilt2, sizeof(tilt2));
-  WiFiManagerParameter cal_sg3("CALSG3", "SG punkt 4 (fx 1.040)", sg3, sizeof(sg3));
-  WiFiManagerParameter cal_tilt3("CALT3", "Tilt punkt 4 (auto)", tilt3, sizeof(tilt3));
-  WiFiManagerParameter cal_sg4("CALSG4", "SG punkt 5 (fx 1.040)", sg4, sizeof(sg4));
-  WiFiManagerParameter cal_tilt4("CALT4", "Tilt punkt 5 (auto)", tilt4, sizeof(tilt4));
-  WiFiManagerParameter cal_sg5("CALSG5", "SG punkt 6 (fx 1.040)", sg5, sizeof(sg5));
-  WiFiManagerParameter cal_tilt5("CALT5", "Tilt punkt 6 (auto)", tilt5, sizeof(tilt5));
+  WiFiManagerParameter cal_tilt0("CALT0", "Tilt punkt 1 (rent vand)", tilt0, sizeof(tilt0), TYPE_HIDDEN,
+                                 WFM_NO_LABEL);
+  WiFiManagerParameter cal_sg1("CALSG1", "SG punkt 2 (fx 1.040)", sg1, sizeof(sg1), TYPE_HIDDEN, WFM_NO_LABEL);
+  WiFiManagerParameter cal_tilt1("CALT1", "Tilt punkt 2 (auto)", tilt1, sizeof(tilt1), TYPE_HIDDEN, WFM_NO_LABEL);
+  WiFiManagerParameter cal_sg2("CALSG2", "SG punkt 3 (fx 1.040)", sg2, sizeof(sg2), TYPE_HIDDEN, WFM_NO_LABEL);
+  WiFiManagerParameter cal_tilt2("CALT2", "Tilt punkt 3 (auto)", tilt2, sizeof(tilt2), TYPE_HIDDEN, WFM_NO_LABEL);
+  WiFiManagerParameter cal_sg3("CALSG3", "SG punkt 4 (fx 1.040)", sg3, sizeof(sg3), TYPE_HIDDEN, WFM_NO_LABEL);
+  WiFiManagerParameter cal_tilt3("CALT3", "Tilt punkt 4 (auto)", tilt3, sizeof(tilt3), TYPE_HIDDEN, WFM_NO_LABEL);
+  WiFiManagerParameter cal_sg4("CALSG4", "SG punkt 5 (fx 1.040)", sg4, sizeof(sg4), TYPE_HIDDEN, WFM_NO_LABEL);
+  WiFiManagerParameter cal_tilt4("CALT4", "Tilt punkt 5 (auto)", tilt4, sizeof(tilt4), TYPE_HIDDEN, WFM_NO_LABEL);
+  WiFiManagerParameter cal_sg5("CALSG5", "SG punkt 6 (fx 1.040)", sg5, sizeof(sg5), TYPE_HIDDEN, WFM_NO_LABEL);
+  WiFiManagerParameter cal_tilt5("CALT5", "Tilt punkt 6 (auto)", tilt5, sizeof(tilt5), TYPE_HIDDEN, WFM_NO_LABEL);
   wifiManager.addParameter(&cal_tilt0);
   wifiManager.addParameter(&cal_sg1);
   wifiManager.addParameter(&cal_tilt1);
@@ -824,48 +825,100 @@ bool startConfiguration()
       ".cal-btn-primary:hover{background:#11508f;}"
       ".cal-note{font-size:12px;color:#444;margin-top:4px;}"
       ".cal-readonly{background:#f7f7f7;}"
-      "</style>");
+      "</style>"
+      "<script>"
+      "document.addEventListener('DOMContentLoaded',function(){"
+      "if(window._calInit)return;"
+      "var form=document.querySelector('form');"
+      "if(!form)return;"
+      "if(!document.getElementById('POLYN'))return;" // only on config page
+      "if(document.getElementById('cal-dashboard')){window._calInit=true;return;}"
+      "var html='"
+      "<fieldset id=\"cal-dashboard\" class=\"cal-box\"><legend>Kalibrering (iSpindel)</legend>"
+      "<p>Punkt 0 er vandkalibrering (rent vand, SG=1.000). Tryk \"Opdater vinkel\" når spindlen ligger stabilt i opløsningen.</p>"
+      "<p>Opdater vinkler for hvert punkt, indtast SG for punkterne 1–5, og afslut med \"Beregn og gem polynomium\".</p>"
+      "<table class=\"cal-table\">"
+      "<tr><th>Punkt</th><th>SG</th><th>Tilt (°)</th><th>Handling</th></tr>"
+      "<tr><td>0 (vand)</td><td><input id=\"visCALSG0\" class=\"cal-input cal-readonly\" value=\"1.000\" readonly></td>"
+      "<td><input id=\"visCALT0\" class=\"cal-input\" placeholder=\"Tilt 0\"></td>"
+      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(0)\">Opdater vinkel</button></td></tr>"
+      "<tr><td>1</td><td><input id=\"visCALSG1\" class=\"cal-input\" placeholder=\"SG 1\"></td>"
+      "<td><input id=\"visCALT1\" class=\"cal-input\" placeholder=\"Tilt 1\"></td>"
+      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(1)\">Opdater vinkel</button></td></tr>"
+      "<tr><td>2</td><td><input id=\"visCALSG2\" class=\"cal-input\" placeholder=\"SG 2\"></td>"
+      "<td><input id=\"visCALT2\" class=\"cal-input\" placeholder=\"Tilt 2\"></td>"
+      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(2)\">Opdater vinkel</button></td></tr>"
+      "<tr><td>3</td><td><input id=\"visCALSG3\" class=\"cal-input\" placeholder=\"SG 3\"></td>"
+      "<td><input id=\"visCALT3\" class=\"cal-input\" placeholder=\"Tilt 3\"></td>"
+      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(3)\">Opdater vinkel</button></td></tr>"
+      "<tr><td>4</td><td><input id=\"visCALSG4\" class=\"cal-input\" placeholder=\"SG 4\"></td>"
+      "<td><input id=\"visCALT4\" class=\"cal-input\" placeholder=\"Tilt 4\"></td>"
+      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(4)\">Opdater vinkel</button></td></tr>"
+      "<tr><td>5</td><td><input id=\"visCALSG5\" class=\"cal-input\" placeholder=\"SG 5\"></td>"
+      "<td><input id=\"visCALT5\" class=\"cal-input\" placeholder=\"Tilt 5\"></td>"
+      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(5)\">Opdater vinkel</button></td></tr>"
+      "</table><div style=\"margin-top:10px;\">"
+      "<button class=\"cal-btn cal-btn-primary\" type=\"button\" onclick=\"submitCalc()\">Beregn og gem polynomium</button>"
+      "<div class=\"cal-note\">Kræver min. 4 gyldige punkter. Resultatet gemmes og bruges til Plato/SG-beregning.</div>"
+      "</div></fieldset>';"
+      "if(typeof window.ensureCalFuncs!=='function'){"
+      "window.ensureCalFuncs=function(){"
+      "if(window._calInit)return;"
+      "window._calInit=true;"
+      "var map={visCALT0:'CALT0',visCALSG1:'CALSG1',visCALT1:'CALT1',visCALSG2:'CALSG2',visCALT2:'CALT2',visCALSG3:'CALSG3',visCALT3:'CALT3',visCALSG4:'CALSG4',visCALT4:'CALT4',visCALSG5:'CALSG5',visCALT5:'CALT5'};"
+      "window.syncFromHidden=function(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){vis.value=h.value;}});var sg0=document.getElementById('visCALSG0');if(sg0&&!sg0.value)sg0.value='1.000';};"
+      "window.syncToHidden=function(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){h.value=vis.value;}});};"
+      "window.submitCalc=function(){syncToHidden();var ids=['visCALT0','visCALSG1','visCALT1','visCALSG2','visCALT2','visCALSG3','visCALT3','visCALSG4','visCALT4','visCALSG5','visCALT5'];var params=[];var mapSend={'visCALT0':'calt0','visCALSG1':'calsg1','visCALT1':'calt1','visCALSG2':'calsg2','visCALT2':'calt2','visCALSG3':'calsg3','visCALT3':'calt3','visCALSG4':'calsg4','visCALT4':'calt4','visCALSG5':'calsg5','visCALT5':'calt5'};ids.forEach(function(id){var el=document.getElementById(id);if(el){params.push(mapSend[id]+'='+encodeURIComponent(el.value||''));}});fetch('/cal/calc?'+params.join('&')).then(function(r){return r.text();}).then(function(txt){alert(txt);var poly=document.getElementById('POLYN');if(poly&&txt.indexOf('Polynomial updated:')===0){poly.value=txt.replace('Polynomial updated: ','');}}).catch(function(){alert('Fejl ved beregning');});};"
+      "window.captureTilt=function(idx){fetch('/cal/capture?index='+idx).then(function(r){return r.json();}).then(function(data){var vis=document.getElementById('visCALT'+idx);if(vis&&data&&data.tilt!==undefined){vis.value=parseFloat(data.tilt).toFixed(2);syncToHidden();}}).catch(function(){});};"
+      "document.addEventListener('DOMContentLoaded',function(){syncFromHidden();var form=document.querySelector('form');if(form){form.addEventListener('submit',function(){syncToHidden();});}});"
+      "syncFromHidden();"
+      "};"
+      "}"
+      "form.insertAdjacentHTML('beforeend',html);"
+      "ensureCalFuncs();"
+      "});"
+      "</script>");
 
-  static const char CAL_DASHBOARD_HTML[] PROGMEM = R"rawliteral(
-<fieldset class="cal-box"><legend>Kalibrering (iSpindel)</legend>
+static const char CAL_DASHBOARD_HTML[] PROGMEM = R"rawliteral(
+<fieldset id="cal-dashboard" class="cal-box"><legend>Kalibrering (iSpindel)</legend>
 <p>Punkt 0 er vandkalibrering (rent vand, SG=1.000). Tryk "Opdater vinkel" når spindlen ligger stabilt i opløsningen.</p>
 <p>Opdater vinkler for hvert punkt, indtast SG for punkterne 1–5, og afslut med "Beregn og gem polynomium".</p>
 <table class="cal-table">
 <tr><th>Punkt</th><th>SG</th><th>Tilt (°)</th><th>Handling</th></tr>
 <tr>
 <td>0 (vand)</td>
-<td id="cell-sg0"></td>
-<td id="cell-tilt0"></td>
+<td><input id="visCALSG0" class="cal-input cal-readonly" value="1.000" readonly></td>
+<td><input id="visCALT0" class="cal-input" placeholder="Tilt 0"></td>
 <td><button class="cal-btn" type="button" onclick="captureTilt(0)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>1</td>
-<td id="cell-sg1"></td>
-<td id="cell-tilt1"></td>
+<td><input id="visCALSG1" class="cal-input" placeholder="SG 1"></td>
+<td><input id="visCALT1" class="cal-input" placeholder="Tilt 1"></td>
 <td><button class="cal-btn" type="button" onclick="captureTilt(1)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>2</td>
-<td id="cell-sg2"></td>
-<td id="cell-tilt2"></td>
+<td><input id="visCALSG2" class="cal-input" placeholder="SG 2"></td>
+<td><input id="visCALT2" class="cal-input" placeholder="Tilt 2"></td>
 <td><button class="cal-btn" type="button" onclick="captureTilt(2)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>3</td>
-<td id="cell-sg3"></td>
-<td id="cell-tilt3"></td>
+<td><input id="visCALSG3" class="cal-input" placeholder="SG 3"></td>
+<td><input id="visCALT3" class="cal-input" placeholder="Tilt 3"></td>
 <td><button class="cal-btn" type="button" onclick="captureTilt(3)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>4</td>
-<td id="cell-sg4"></td>
-<td id="cell-tilt4"></td>
+<td><input id="visCALSG4" class="cal-input" placeholder="SG 4"></td>
+<td><input id="visCALT4" class="cal-input" placeholder="Tilt 4"></td>
 <td><button class="cal-btn" type="button" onclick="captureTilt(4)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>5</td>
-<td id="cell-sg5"></td>
-<td id="cell-tilt5"></td>
+<td><input id="visCALSG5" class="cal-input" placeholder="SG 5"></td>
+<td><input id="visCALT5" class="cal-input" placeholder="Tilt 5"></td>
 <td><button class="cal-btn" type="button" onclick="captureTilt(5)">Opdater vinkel</button></td>
 </tr>
 </table>
@@ -874,12 +927,14 @@ bool startConfiguration()
 <div class="cal-note">Kræver min. 4 gyldige punkter. Resultatet gemmes og bruges til Plato/SG-beregning.</div>
 </div>
 <script>(function(){
-function move(id, cellId){var el=document.getElementById(id);var cell=document.getElementById(cellId);if(!el||!cell)return;var lbl=document.querySelector('label[for=\"'+id+'\"]');if(lbl){lbl.style.display='none';}el.className='cal-input';cell.appendChild(el);}
-function moveAll(){var pairs=[['CALSG0','cell-sg0'],['CALT0','cell-tilt0'],['CALSG1','cell-sg1'],['CALT1','cell-tilt1'],['CALSG2','cell-sg2'],['CALT2','cell-tilt2'],['CALSG3','cell-sg3'],['CALT3','cell-tilt3'],['CALSG4','cell-sg4'],['CALT4','cell-tilt4'],['CALSG5','cell-sg5'],['CALT5','cell-tilt5']];pairs.forEach(function(p){move(p[0],p[1]);});var sg0=document.getElementById('CALSG0');if(sg0){sg0.value='1.000';sg0.readOnly=true;sg0.className='cal-input cal-readonly';}}
-function submitCalc(){var ids=['calt0','calsg1','calt1','calsg2','calt2','calsg3','calt3','calsg4','calt4','calsg5','calt5'];var map={'calt0':'CALT0','calsg1':'CALSG1','calt1':'CALT1','calsg2':'CALSG2','calt2':'CALT2','calsg3':'CALSG3','calt3':'CALT3','calsg4':'CALSG4','calt4':'CALT4','calsg5':'CALSG5','calt5':'CALT5'};var params=[];ids.forEach(function(k){var el=document.getElementById(map[k]);if(el){params.push(k+'='+encodeURIComponent(el.value||''));}});fetch('/cal/calc?'+params.join('&')).then(function(r){return r.text();}).then(function(txt){alert(txt);var poly=document.getElementById('POLYN');if(poly&&txt.indexOf('Polynomial updated:')===0){poly.value=txt.replace('Polynomial updated: ','');}}).catch(function(){alert('Fejl ved beregning');});}
-function captureTilt(idx){fetch('/cal/capture?index='+idx).then(function(r){return r.json();}).then(function(data){var el=document.getElementById('CALT'+idx);if(el&&data&&data.tilt!==undefined){el.value=parseFloat(data.tilt).toFixed(2);} }).catch(function(){});}
+if(window._calInit){return;} window._calInit=true;
+var map={visCALT0:'CALT0',visCALSG1:'CALSG1',visCALT1:'CALT1',visCALSG2:'CALSG2',visCALT2:'CALT2',visCALSG3:'CALSG3',visCALT3:'CALT3',visCALSG4:'CALSG4',visCALT4:'CALT4',visCALSG5:'CALSG5',visCALT5:'CALT5'};
+function syncFromHidden(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){vis.value=h.value;}});var sg0=document.getElementById('visCALSG0');if(sg0&&!sg0.value)sg0.value='1.000';}
+function syncToHidden(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){h.value=vis.value;}});}
+function submitCalc(){syncToHidden();var ids=['visCALT0','visCALSG1','visCALT1','visCALSG2','visCALT2','visCALSG3','visCALT3','visCALSG4','visCALT4','visCALSG5','visCALT5'];var params=[];var mapSend={'visCALT0':'calt0','visCALSG1':'calsg1','visCALT1':'calt1','visCALSG2':'calsg2','visCALT2':'calt2','visCALSG3':'calsg3','visCALT3':'calt3','visCALSG4':'calsg4','visCALT4':'calt4','visCALSG5':'calsg5','visCALT5':'calt5'};ids.forEach(function(id){var el=document.getElementById(id);if(el){params.push(mapSend[id]+'='+encodeURIComponent(el.value||''));}});fetch('/cal/calc?'+params.join('&')).then(function(r){return r.text();}).then(function(txt){alert(txt);var poly=document.getElementById('POLYN');if(poly&&txt.indexOf('Polynomial updated:')===0){poly.value=txt.replace('Polynomial updated: ','');}}).catch(function(){alert('Fejl ved beregning');});}
+function captureTilt(idx){fetch('/cal/capture?index='+idx).then(function(r){return r.json();}).then(function(data){var vis=document.getElementById('visCALT'+idx);if(vis&&data&&data.tilt!==undefined){vis.value=parseFloat(data.tilt).toFixed(2);syncToHidden();}}).catch(function(){});}
 window.submitCalc=submitCalc;window.captureTilt=captureTilt;
-moveAll();document.addEventListener('DOMContentLoaded',function(){moveAll();});
+syncFromHidden();document.addEventListener('DOMContentLoaded',function(){syncFromHidden();var form=document.querySelector('form');if(form){form.addEventListener('submit',function(){syncToHidden();});}});
 })();</script>
 </fieldset>
 )rawliteral";
