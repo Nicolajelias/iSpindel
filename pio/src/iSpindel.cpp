@@ -1750,6 +1750,13 @@ void flash()
   requestTemp();
 }
 
+void flashConfig()
+{
+  static bool ledOn = false;
+  ledOn = !ledOn;
+  digitalWrite(LED_BUILTIN, ledOn ? LOW : HIGH); // LED på D1 mini er aktiv LOW
+}
+
 bool isSafeMode(float _volt)
 {
   if (_volt < LOWBATT)
@@ -1840,8 +1847,9 @@ void setup()
       ESP.rtcUserMemoryWrite(WIFIENADDR, &tmp, sizeof(tmp));
     }
 
-    // Vi undlader flasher/flash()-ticker i config-mode for at undgå sensorkald,
-    // der kan trigge fejl mens portalen er åben.
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, HIGH);
+    flasher.attach(0.5, flashConfig);
 
     // rescue if wifi credentials lost because of power loss
     if (!startConfiguration())
@@ -1854,6 +1862,9 @@ void setup()
     }
     uint32_t left2sleep = 0;
     ESP.rtcUserMemoryWrite(RTCSLEEPADDR, &left2sleep, sizeof(left2sleep));
+
+    flasher.detach();
+    digitalWrite(LED_BUILTIN, HIGH);
 
     CONSOLELN(F("Config portal closed, restarting..."));
     ESP.restart();
