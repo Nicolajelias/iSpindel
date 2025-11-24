@@ -20,7 +20,9 @@
 extern Ticker flasher;
 
 // defines go here
+#ifndef FIRMWAREVERSION
 #define FIRMWAREVERSION "7.3.4-poly-calc"
+#endif
 #define FWURL "https://github.com/Nicolajelias/iSpindel"
 
 #define API_FHEM true

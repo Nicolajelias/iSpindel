@@ -588,7 +588,9 @@ void handleCalCapture()
   }
   int idx = configServer->arg("index").toInt();
   captureCalibrationPoint(idx);
-  configServer->send(200, "text/plain", "Captured tilt for index " + String(idx));
+  float t = (idx >= 0 && idx < CAL_POINTS) ? myData.calTilt[idx] : NAN;
+  String body = "{\"index\":" + String(idx) + ",\"tilt\":" + String(isnan(t) ? 0 : t, 2) + "}";
+  configServer->send(200, "application/json", body);
 }
 
 void handleCalCalc()
@@ -609,11 +611,9 @@ void handleCalCalc()
 
   // Opdater kalibreringsfelter fra query-parametre hvis de er angivet
   float calTiltTmp[CAL_POINTS];
-  float calSGTmp[CAL_POINTS];
   for (int i = 0; i < CAL_POINTS; i++)
   {
     calTiltTmp[i] = myData.calTilt[i];
-    calSGTmp[i] = myData.calSG[i];
   }
 
   calTiltTmp[0] = parseArgFloat("calt0");
@@ -827,6 +827,21 @@ bool startConfiguration()
       ".cal-note{font-size:12px;color:#444;margin-top:4px;}"
       ".cal-readonly{background:#f7f7f7;}"
       "</style>");
+  // Ekstra kontrolpanel med knapper, hvis dash ikke renderes korrekt
+  WiFiManagerParameter cal_buttons_plain(
+      "<div style=\"border:1px solid #ccc;padding:8px;margin:8px 0;border-radius:4px;\">"
+      "<b>Kalibreringskontrol</b><br>"
+      "<button type=\"button\" onclick=\"captureTilt(0)\">Capture tilt punkt 1 (vand)</button><br>"
+      "<button type=\"button\" onclick=\"captureTilt(1)\">Capture tilt punkt 2</button><br>"
+      "<button type=\"button\" onclick=\"captureTilt(2)\">Capture tilt punkt 3</button><br>"
+      "<button type=\"button\" onclick=\"captureTilt(3)\">Capture tilt punkt 4</button><br>"
+      "<button type=\"button\" onclick=\"captureTilt(4)\">Capture tilt punkt 5</button><br>"
+      "<button type=\"button\" onclick=\"captureTilt(5)\">Capture tilt punkt 6</button><br>"
+      "<button type=\"button\" onclick=\"submitCalc()\" style=\"margin-top:6px;\">Beregn og gem polynomium</button>"
+      "<div style=\"font-size:12px;color:#444;\">Bruger de aktuelle SG/tilt-felter.</div>"
+      "</div>",
+      "cal_buttons_plain", "", 0, WFM_NO_LABEL);
+  wifiManager.addParameter(&cal_buttons_plain);
 
   static const char CAL_DASHBOARD_HTML[] PROGMEM = R"rawliteral(
 <fieldset class="cal-box"><legend>Kalibrering (iSpindel)</legend>
@@ -838,37 +853,37 @@ bool startConfiguration()
 <td>0 (vand)</td>
 <td>1.000 (rent vand)</td>
 <td id="cell-tilt0"></td>
-<td><a class="cal-btn" href="/cal/capture?index=0">Opdater vinkel</a></td>
+<td><button class="cal-btn" type="button" onclick="captureTilt(0)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>1</td>
 <td id="cell-sg1"></td>
 <td id="cell-tilt1"></td>
-<td><a class="cal-btn" href="/cal/capture?index=1">Opdater vinkel</a></td>
+<td><button class="cal-btn" type="button" onclick="captureTilt(1)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>2</td>
 <td id="cell-sg2"></td>
 <td id="cell-tilt2"></td>
-<td><a class="cal-btn" href="/cal/capture?index=2">Opdater vinkel</a></td>
+<td><button class="cal-btn" type="button" onclick="captureTilt(2)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>3</td>
 <td id="cell-sg3"></td>
 <td id="cell-tilt3"></td>
-<td><a class="cal-btn" href="/cal/capture?index=3">Opdater vinkel</a></td>
+<td><button class="cal-btn" type="button" onclick="captureTilt(3)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>4</td>
 <td id="cell-sg4"></td>
 <td id="cell-tilt4"></td>
-<td><a class="cal-btn" href="/cal/capture?index=4">Opdater vinkel</a></td>
+<td><button class="cal-btn" type="button" onclick="captureTilt(4)">Opdater vinkel</button></td>
 </tr>
 <tr>
 <td>5</td>
 <td id="cell-sg5"></td>
 <td id="cell-tilt5"></td>
-<td><a class="cal-btn" href="/cal/capture?index=5">Opdater vinkel</a></td>
+<td><button class="cal-btn" type="button" onclick="captureTilt(5)">Opdater vinkel</button></td>
 </tr>
 </table>
 <div style="margin-top:10px;">
@@ -877,7 +892,8 @@ bool startConfiguration()
 </div>
 <script>(function(){
 function move(id, cellId){var el=document.getElementById(id);var cell=document.getElementById(cellId);if(!el||!cell)return;var lbl=document.querySelector('label[for=\"'+id+'\"]');if(lbl){lbl.style.display='none';}el.className='cal-input';cell.appendChild(el);}
-function submitCalc(){var ids=['calt0','calsg1','calt1','calsg2','calt2','calsg3','calt3','calsg4','calt4','calsg5','calt5'];var map={'calt0':'CALT0','calsg1':'CALSG1','calt1':'CALT1','calsg2':'CALSG2','calt2':'CALT2','calsg3':'CALSG3','calt3':'CALT3','calsg4':'CALSG4','calt4':'CALT4','calsg5':'CALSG5','calt5':'CALT5'};var params=[];ids.forEach(function(k){var el=document.getElementById(map[k]);if(el){params.push(k+'='+encodeURIComponent(el.value||''));}});window.location.href='/cal/calc?'+params.join('&');}
+function submitCalc(){var ids=['calt0','calsg1','calt1','calsg2','calt2','calsg3','calt3','calsg4','calt4','calsg5','calt5'];var map={'calt0':'CALT0','calsg1':'CALSG1','calt1':'CALT1','calsg2':'CALSG2','calt2':'CALT2','calsg3':'CALSG3','calt3':'CALT3','calsg4':'CALSG4','calt4':'CALT4','calsg5':'CALSG5','calt5':'CALT5'};var params=[];ids.forEach(function(k){var el=document.getElementById(map[k]);if(el){params.push(k+'='+encodeURIComponent(el.value||''));}});fetch('/cal/calc?'+params.join('&')).then(function(r){return r.text();}).then(function(txt){alert(txt);var poly=document.getElementById('POLYN');if(poly&&txt.indexOf('Polynomial updated:')===0){poly.value=txt.replace('Polynomial updated: ','');}}).catch(function(){alert('Fejl ved beregning');});}
+function captureTilt(idx){fetch('/cal/capture?index='+idx).then(function(r){return r.json();}).then(function(data){var el=document.getElementById('CALT'+idx);if(el&&data && data.tilt!==undefined){el.value=parseFloat(data.tilt).toFixed(2);} }).catch(function(){/* ignore */});}
 move('CALT0','cell-tilt0');
 move('CALSG1','cell-sg1');
 move('CALT1','cell-tilt1');
