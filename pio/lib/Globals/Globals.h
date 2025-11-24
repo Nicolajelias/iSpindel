@@ -74,6 +74,7 @@ extern Ticker flasher;
   {                                                                                                                    \
     D6                                                                                                                 \
   }
+const uint8_t OW_PINS_COUNT = sizeof(OW_PINS) / sizeof(OW_PINS[0]);
 #define RESOLUTION 12 // 12bit resolution == 750ms update rate
 #define OWinterval (760 / (1 << (12 - RESOLUTION)))
 #define CFGFILE "/config.json"

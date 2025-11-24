@@ -38,7 +38,7 @@ Ticker flasher;
 RunningMedian samples = RunningMedian(MEDIANROUNDSMAX);
 DoubleResetDetector drd(DRD_TIMEOUT, DRD_ADDRESS);
 
-int detectTempSensor(const uint8_t pins[]);
+int detectTempSensor(const uint8_t pins[], uint8_t count);
 bool testAccel();
 float getTilt();
 
@@ -155,6 +155,7 @@ bool readConfig()
         {
           CONSOLE(F("deserializeJson() failed: "));
           CONSOLELN(error.c_str());
+          return false;
         }
         else
         {
@@ -825,53 +826,7 @@ bool startConfiguration()
       ".cal-btn-primary:hover{background:#11508f;}"
       ".cal-note{font-size:12px;color:#444;margin-top:4px;}"
       ".cal-readonly{background:#f7f7f7;}"
-      "</style>"
-      "<script>"
-      "document.addEventListener('DOMContentLoaded',function(){"
-      "if(window._calInit)return;"
-      "var form=document.querySelector('form');"
-      "if(!form)return;"
-      "if(!document.getElementById('POLYN'))return;" // only config page
-      "if(!document.getElementById('cal-dashboard')){"
-      "form.insertAdjacentHTML('beforeend',"
-      "'<fieldset id=\"cal-dashboard\" class=\"cal-box\"><legend>Kalibrering (iSpindel)</legend>"
-      "<p>Punkt 0 er vandkalibrering (rent vand, SG=1.000). Tryk \"Opdater vinkel\" når spindlen ligger stabilt i opløsningen.</p>"
-      "<p>Opdater vinkler for hvert punkt, indtast SG for punkterne 1–5, og afslut med \"Beregn og gem polynomium\".</p>"
-      "<table class=\"cal-table\">"
-      "<tr><th>Punkt</th><th>SG</th><th>Tilt (°)</th><th>Handling</th></tr>"
-      "<tr><td>0 (vand)</td><td><input id=\"visCALSG0\" class=\"cal-input cal-readonly\" value=\"1.000\" readonly></td>"
-      "<td><input id=\"visCALT0\" class=\"cal-input\" placeholder=\"Tilt 0\"></td>"
-      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(0)\">Opdater vinkel</button></td></tr>"
-      "<tr><td>1</td><td><input id=\"visCALSG1\" class=\"cal-input\" placeholder=\"SG 1\"></td>"
-      "<td><input id=\"visCALT1\" class=\"cal-input\" placeholder=\"Tilt 1\"></td>"
-      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(1)\">Opdater vinkel</button></td></tr>"
-      "<tr><td>2</td><td><input id=\"visCALSG2\" class=\"cal-input\" placeholder=\"SG 2\"></td>"
-      "<td><input id=\"visCALT2\" class=\"cal-input\" placeholder=\"Tilt 2\"></td>"
-      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(2)\">Opdater vinkel</button></td></tr>"
-      "<tr><td>3</td><td><input id=\"visCALSG3\" class=\"cal-input\" placeholder=\"SG 3\"></td>"
-      "<td><input id=\"visCALT3\" class=\"cal-input\" placeholder=\"Tilt 3\"></td>"
-      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(3)\">Opdater vinkel</button></td></tr>"
-      "<tr><td>4</td><td><input id=\"visCALSG4\" class=\"cal-input\" placeholder=\"SG 4\"></td>"
-      "<td><input id=\"visCALT4\" class=\"cal-input\" placeholder=\"Tilt 4\"></td>"
-      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(4)\">Opdater vinkel</button></td></tr>"
-      "<tr><td>5</td><td><input id=\"visCALSG5\" class=\"cal-input\" placeholder=\"SG 5\"></td>"
-      "<td><input id=\"visCALT5\" class=\"cal-input\" placeholder=\"Tilt 5\"></td>"
-      "<td><button class=\"cal-btn\" type=\"button\" onclick=\"captureTilt(5)\">Opdater vinkel</button></td></tr>"
-      "</table><div style=\"margin-top:10px;\">"
-      "<button class=\"cal-btn cal-btn-primary\" type=\"button\" onclick=\"submitCalc()\">Beregn og gem polynomium</button>"
-      "<div class=\"cal-note\">Kræver min. 4 gyldige punkter. Resultatet gemmes og bruges til Plato/SG-beregning.</div>"
-      "</div></fieldset>'"
-      ");}"
-      "var map={visCALT0:'CALT0',visCALSG1:'CALSG1',visCALT1:'CALT1',visCALSG2:'CALSG2',visCALT2:'CALT2',visCALSG3:'CALSG3',visCALT3:'CALT3',visCALSG4:'CALSG4',visCALT4:'CALT4',visCALSG5:'CALSG5',visCALT5:'CALT5'};"
-      "function syncFromHidden(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){vis.value=h.value;}});var sg0=document.getElementById('visCALSG0');if(sg0&&!sg0.value)sg0.value='1.000';}"
-      "function syncToHidden(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){h.value=vis.value;}});}"
-      "window.submitCalc=function(){syncToHidden();var ids=['visCALT0','visCALSG1','visCALT1','visCALSG2','visCALT2','visCALSG3','visCALT3','visCALSG4','visCALT4','visCALSG5','visCALT5'];var params=[];var mapSend={'visCALT0':'calt0','visCALSG1':'calsg1','visCALT1':'calt1','visCALSG2':'calsg2','visCALT2':'calt2','visCALSG3':'calsg3','visCALT3':'calt3','visCALSG4':'calsg4','visCALT4':'calt4','visCALSG5':'calsg5','visCALT5':'calt5'};ids.forEach(function(id){var el=document.getElementById(id);if(el){params.push(mapSend[id]+'='+encodeURIComponent(el.value||''));}});fetch('/cal/calc?'+params.join('&')).then(function(r){return r.text();}).then(function(txt){alert(txt);var poly=document.getElementById('POLYN');if(poly&&txt.indexOf('Polynomial updated:')===0){poly.value=txt.replace('Polynomial updated: ','');}}).catch(function(){alert('Fejl ved beregning');});};"
-      "window.captureTilt=function(idx){fetch('/cal/capture?index='+idx).then(function(r){return r.json();}).then(function(data){var vis=document.getElementById('visCALT'+idx);if(vis&&data&&data.tilt!==undefined){vis.value=parseFloat(data.tilt).toFixed(2);syncToHidden();}}).catch(function(){});};"
-      "syncFromHidden();"
-      "if(form){form.addEventListener('submit',function(){syncToHidden();});}"
-      "window._calInit=true;"
-      "});"
-      "</script>");
+      "</style>");
 
 static const char CAL_DASHBOARD_HTML[] PROGMEM = R"rawliteral(
 <fieldset id="cal-dashboard" class="cal-box"><legend>Kalibrering (iSpindel)</legend>
@@ -1416,8 +1371,11 @@ void goodNight(uint32_t seconds, bool rfOnWake)
   drd.stop();
 
   // DS-pin lav for at undgå floating/µA
-  pinMode(myData.OWpin, OUTPUT);
-  digitalWrite(myData.OWpin, LOW);
+  if (myData.OWpin >= 0)
+  {
+    pinMode(myData.OWpin, OUTPUT);
+    digitalWrite(myData.OWpin, LOW);
+  }
 
   // Step-sleeps: RF altid OFF (som i originalen)
   if (_seconds > MAXSLEEPTIME)
@@ -1459,6 +1417,9 @@ void sleepManager()
 
 void requestTemp()
 {
+  if (myData.OWpin < 0 || oneWire == nullptr)
+    return;
+
   if (!DSreqTime)
   {
     DS18B20.requestTemperatures();
@@ -1470,7 +1431,7 @@ void initDS18B20()
 {
   if (myData.OWpin == -1)
   {
-    myData.OWpin = detectTempSensor(OW_PINS);
+    myData.OWpin = detectTempSensor(OW_PINS, OW_PINS_COUNT);
     if (myData.OWpin == -1)
     {
       CONSOLELN(F("ERROR: cannot find a OneWire Temperature Sensor!"));
@@ -1487,7 +1448,7 @@ void initDS18B20()
   bool device = DS18B20.getAddress(tempDeviceAddress, 0);
   if (!device)
   {
-    myData.OWpin = detectTempSensor(OW_PINS);
+    myData.OWpin = detectTempSensor(OW_PINS, OW_PINS_COUNT);
     if (myData.OWpin == -1)
     {
       CONSOLELN(F("ERROR: cannot find a OneWire Temperature Sensor!"));
@@ -1572,8 +1533,11 @@ void getAccSample()
 
 float getTilt()
 {
+  samples.clear();  // Ensure we don't mix samples across measurements
+
   uint32_t start = millis();
   uint8_t i = 0;
+  bool gotSample = false;
 
   for (; i < MEDIANROUNDSMAX; i++)
   {
@@ -1589,27 +1553,45 @@ float getTilt()
       }
     }
 
+    // If we timed out on this iteration, skip adding a sample
+    if (wait > 50)
+    {
+      continue;
+    }
+
     getAccSample();
     float _tilt = calculateTilt();
     samples.add(_tilt);
+    gotSample = true;
 
     if (i >= MEDIANROUNDSMIN && isDS18B20ready())
       break;
   }
+
+  if (!gotSample)
+  {
+    CONSOLELN(F("No valid accel samples, returning NaN"));
+    return NAN;
+  }
+
   CONSOLE("Samples:");
-  CONSOLE(++i);
+  CONSOLE((int)samples.getCount());
   CONSOLE(" min:");
   CONSOLE(samples.getLowest());
   CONSOLE(" max:");
   CONSOLE(samples.getHighest());
   CONSOLE(" time:");
   CONSOLELN(millis() - start);
+
   return samples.getAverage(MEDIANAVRG);
 }
 
 float getTemperature(bool block = false)
 {
   float cached = Temperatur;
+
+  if (myData.OWpin < 0 || oneWire == nullptr)
+    return cached;
 
   // ensure a conversion is in flight
   if (!DSreqTime)
@@ -1634,10 +1616,17 @@ float getTemperature(bool block = false)
       isnan(t))
   {
     CONSOLELN(F("ERROR: OW DISCONNECTED"));
-    pinMode(myData.OWpin, OUTPUT);
-    digitalWrite(myData.OWpin, LOW);
-    delay(100);
-    oneWire->reset();
+    if (myData.OWpin >= 0)
+    {
+      pinMode(myData.OWpin, OUTPUT);
+      digitalWrite(myData.OWpin, LOW);
+      delay(100);
+      oneWire->reset();
+    }
+    else
+    {
+      return cached;
+    }
 
     CONSOLELN(F("OW Retry"));
     initDS18B20();
@@ -1659,6 +1648,9 @@ float getTemperature(bool block = false)
 // Blocking helper to read temperature immediately (used by info page in config portal)
 float readTemperatureBlocking()
 {
+  if (myData.OWpin < 0 || oneWire == nullptr)
+    return Temperatur;
+
   requestTemp();
   delay(OWinterval + 50);
   DSreqTime = 0;
@@ -1676,12 +1668,12 @@ float readTemperatureBlocking()
   return t;
 }
 
-int detectTempSensor(const uint8_t pins[])
+int detectTempSensor(const uint8_t pins[], uint8_t count)
 {
 
-  for (uint8_t p = 0; p < sizeof(pins); p++)
+  for (uint8_t p = 0; p < count; p++)
   {
-    const byte pin = pins[p];
+    const uint8_t pin = pins[p];
     byte i;
     byte present = 0;
     byte type_s;
@@ -1799,6 +1791,11 @@ float calculateGravity()
   double _tilt = Tilt;
   double _temp = Temperatur;
   float _gravity = 0;
+  if (myData.polynominal[0] == '\0')
+  {
+    CONSOLELN(F("Empty polynomial, returning 0"));
+    return 0;
+  }
   int err;
   te_variable vars[] = {{"tilt", &_tilt}, {"temp", &_temp}};
   te_expr *expr = te_compile(myData.polynominal, vars, 2, &err);
@@ -1819,9 +1816,16 @@ void flash()
 {
   // triggers the LED
   Volt = getBattery();
+
   if (testAccel())
-    getAccSample();
-  Tilt = calculateTilt();
+  {
+    Tilt = getTilt(); // use same robust path as main measurement
+  }
+  else
+  {
+    CONSOLELN(F("flash(): accel error, keeping previous Tilt"));
+  }
+
   Temperatur = getTemperature(false);
   Gravity = calculateGravity();
   requestTemp();
@@ -1950,22 +1954,31 @@ void setup()
     ESP.restart();
     delay(500);
   }
-  // --- NYT: "Charging pose" check før WiFi bringes op ---
+  // --- "Charging pose" check før WiFi bringes op ---
   // Skippes hvis vi lige har været i config-mode (for at holde AP kørende).
   if (!configMode)
   {
-    Tilt = getTilt(); // bruger MPU6050, median osv.
-    if (Tilt < CHARGE_TILT_DEG)
+    // Only use charging pose if accelerometer is actually working
+    if (!testAccel())
     {
-      CONSOLELN(F("Charging pose detected (< ") + String(CHARGE_TILT_DEG) + F(" deg) -> ultra-sleep"));
-      // Sluk periferi
-      accelgyro.setSleepEnabled(true);
-      // WiFi helt af for at spare strøm (i tilfælde af at core har efterladt noget)
-      WiFi.mode(WIFI_OFF);
-      WiFi.forceSleepBegin();
-      delay(1);
-      // Sov med RF OFF og tjek igen om CHARGE_SLEEP_S sekunder
-      goodNight(CHARGE_SLEEP_S, /*rfOnWake=*/false);
+      CONSOLELN(F("Accel ERROR -> skipping charging pose check"));
+    }
+    else
+    {
+      Tilt = getTilt(); // uses MPU6050 with median etc.
+
+      // Ignore completely bogus 0.0 / NaN tilts and only treat as charging if it looks sane
+      if (!isnan(Tilt) && Tilt > 0.1f && Tilt < CHARGE_TILT_DEG)
+      {
+        CONSOLELN(String("Charging pose detected (< ") + CHARGE_TILT_DEG + " deg) -> ultra-sleep");
+        // Turn off peripherals for ultra-low power
+        accelgyro.setSleepEnabled(true);
+        WiFi.mode(WIFI_OFF);
+        WiFi.forceSleepBegin();
+        delay(1);
+        // Sleep with RF OFF and re-check after CHARGE_SLEEP_S seconds
+        goodNight(CHARGE_SLEEP_S, /*rfOnWake=*/false);
+      }
     }
   }
 
