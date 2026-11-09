@@ -1,8 +1,8 @@
 """Host regression checks for production portal code; no ESP8266 required.
 
 Run: python tests/test_portal_regressions.py --cxx /path/to/g++
-The harness compiles the actual parameter, menu and scan implementations with
-small WiFi/HTTP fakes. It does not emulate the ESP8266 allocator or radio.
+The harness compiles the actual parameter, menu, scan and tilt sampling code
+with small hardware fakes. It does not emulate the ESP8266 allocator or radio.
 """
 
 import argparse
@@ -20,10 +20,10 @@ SOURCE = (ROOT / "pio/lib/WiFiManagerKT/WiFiManagerKT.cpp").read_text(encoding="
 FIRMWARE = (ROOT / "pio/src/iSpindel.cpp").read_text(encoding="utf-8")
 
 
-def function(signature):
-    start = SOURCE.index(signature)
-    end = SOURCE.index("\n}\n", start) + 3
-    return SOURCE[start:end]
+def function(signature, source=SOURCE):
+    start = source.index(signature)
+    end = source.index("\n}\n", start) + 3
+    return source[start:end]
 
 
 def harness():
@@ -50,6 +50,7 @@ def harness():
 #include <map>
 #include <string>
 #include <type_traits>
+#include <vector>
 #define PROGMEM
 #define F(x) x
 #define FPSTR(x) x
@@ -57,6 +58,11 @@ def harness():
 #define WFM_LABEL_BEFORE 1
 #define CONTENT_LENGTH_UNKNOWN size_t(-1)
 #define WL_CONNECTED 3
+#define CONSOLE(...) ((void)0)
+#define CONSOLELN(...) ((void)0)
+#define MEDIANROUNDSMAX 49
+#define MEDIANROUNDSMIN 29
+#define MEDIANAVRG MEDIANROUNDSMIN
 using std::isnan;
 
 // Limit each temporary string to 512 bytes to catch menu assembly regressions.
@@ -82,6 +88,29 @@ struct String : std::string {
 };
 unsigned long now = 1234;
 unsigned long millis() { return now; }
+void delay(unsigned long ms) { now += ms; }
+struct FakeAccel {
+  int readyBudget = -1; // -1: healthy, 0: not ready, >0: fail after N samples.
+  bool getIntDataReadyStatus() {
+    if (readyBudget < 0) return true;
+    if (readyBudget == 0) return false;
+    --readyBudget;
+    return true;
+  }
+} accelgyro;
+struct FakeSamples {
+  std::vector<float> values;
+  void clear() { values.clear(); }
+  void add(float value) { values.push_back(value); }
+  size_t getCount() { return values.size(); }
+  float getLowest() { return *std::min_element(values.begin(), values.end()); }
+  float getHighest() { return *std::max_element(values.begin(), values.end()); }
+  float getAverage(int) { return values.front(); }
+} samples;
+bool temperatureReady = true;
+bool isDS18B20ready() { return temperatureReady; }
+void getAccSample() {}
+float calculateTilt() { return 45.0f; }
 struct IP { String toString() { return "192.168.1.10"; } };
 struct FakeWiFi {
   int found = 0, state = 0;
@@ -133,7 +162,7 @@ struct WiFiManager {
         "void WiFiManager::handleRoot()",
         "int WiFiManager::scanWifiNetworks(int **indicesptr)",
         "int WiFiManager::getRSSIasQuality(int RSSI)",
-    )) + r'''
+    )) + function("float getTilt()\n{", FIRMWARE) + r'''
 String htmlencode(const char *s) { return s; }
 ''' + (
         "static String calValue(" + FIRMWARE.split("static String calValue(", 1)[1].split("\n}\n", 1)[0] + "\n}\n"
@@ -191,6 +220,22 @@ int main() {
   }
   std::cout << "PASS: complete Calibration menu with/without WiFi, 512-byte temporaries\n";
 
+  now = 0;
+  accelgyro.readyBudget = 0;
+  assert(isnan(getTilt()));
+  assert(samples.getCount() == 0 && now == 102);
+  now = 0;
+  accelgyro.readyBudget = 2;
+  assert(isnan(getTilt())); // Reject partial data after a sensor timeout.
+  assert(samples.getCount() == 2 && now == 102);
+  accelgyro.readyBudget = -1;
+  assert(getTilt() == 45.0f);
+  assert(samples.getCount() == MEDIANROUNDSMIN + 1);
+  temperatureReady = false;
+  assert(getTilt() == 45.0f);
+  assert(samples.getCount() == MEDIANROUNDSMAX);
+  std::cout << "PASS: tilt timeout aborts once, rejects partial data, healthy sampling unchanged\n";
+
   constexpr int CAL_POINTS = 6;
   struct {
     const char *polynominal = "0.01*tilt^2-0.2*tilt+1";
@@ -227,6 +272,10 @@ def main():
     args = parser.parse_args()
     if not args.cxx:
         parser.error("Pass --cxx with the path to a host C++ compiler")
+    # A shared I2C clock cannot also be driven as a status LED in the portal loop.
+    portal = function("boolean WiFiManager::startConfigPortal(char const *apName, char const *apPassword)")
+    assert not re.search(r"\b(?:setPortalLed|LED_BUILTIN)\b", portal)
+    assert "flashConfig" not in FIRMWARE
     env = dict(os.environ)
     env["PATH"] = str(Path(args.cxx).resolve().parent) + os.pathsep + env.get("PATH", "")
     with tempfile.TemporaryDirectory(prefix="ispindel-portal-") as tmp:

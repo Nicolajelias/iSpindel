@@ -1687,10 +1687,11 @@ float getTilt()
       }
     }
 
-    // If we timed out on this iteration, skip adding a sample
+    // A sensor failure must not block a web request for 49 consecutive
+    // timeouts, or return a partial calibration measurement as valid.
     if (wait > 50)
     {
-      continue;
+      return NAN;
     }
 
     getAccSample();
@@ -1948,7 +1949,7 @@ float calculateGravity()
 
 void flash()
 {
-  // triggers the LED
+  // Refresh sensor values synchronously.
   Volt = getBattery();
 
   if (testAccel())
@@ -1963,13 +1964,6 @@ void flash()
   Temperatur = getTemperature(false);
   Gravity = calculateGravity();
   requestTemp();
-}
-
-void flashConfig()
-{
-  static bool ledOn = false;
-  ledOn = !ledOn;
-  digitalWrite(LED_BUILTIN, ledOn ? LOW : HIGH); // LED på D1 mini er aktiv LOW
 }
 
 bool isSafeMode(float _volt)
@@ -2062,9 +2056,7 @@ void setup()
       ESP.rtcUserMemoryWrite(WIFIENADDR, &tmp, sizeof(tmp));
     }
 
-    pinMode(LED_BUILTIN, OUTPUT);
-    digitalWrite(LED_BUILTIN, HIGH);
-    flasher.attach(0.5, flashConfig);
+    flasher.detach();
     // Frisk data og ryd dobbelt-reset-flag, så et enkelt tryk ikke tolkes som dobbelt, mens portalen er åben
     flash();
     drd.stop();
@@ -2082,7 +2074,6 @@ void setup()
     ESP.rtcUserMemoryWrite(RTCSLEEPADDR, &left2sleep, sizeof(left2sleep));
 
     flasher.detach();
-    digitalWrite(LED_BUILTIN, HIGH);
 
     CONSOLELN(F("Config portal closed, restarting..."));
     ESP.restart();

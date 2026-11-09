@@ -381,7 +381,8 @@ boolean WiFiManager::startConfigPortal(char const *apName, char const *apPasswor
   {
     //DNS
     dnsServer->processNextRequest();
-    //HTTP
+    // The built-in LED shares D4 with I2C SCL. Leave that pin to Wire;
+    // changing its level/mode here disrupts accelerometer communication.
     server->handleClient();
 
     if (connect)
@@ -1107,14 +1108,13 @@ void WiFiManager::handleOffset()
   <h1>calibrate Offset</h1><hr> \
   <table><tr><td> \
   ...calibration in progress...<br><h2>DO NOT MOVE OR SHAKE!</h2><br> \
-  It takes a few seconds to complete. Once complete the blue LED will switch from continous to blinking \
+  Keep the device still until calibration completes and the information page appears. \
   </td></tr></table>");
 
   page += FPSTR(HTTP_END);
 
   server->send(200, "text/html", page);
   offset.calibrate();
-  flasher.attach(1, flash);
 }
 
 /** Handle the state page */
