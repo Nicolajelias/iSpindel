@@ -41,6 +41,11 @@ WiFiManagerParameter::WiFiManagerParameter(const char *custom)
   _customHTML = custom;
 }
 
+WiFiManagerParameter::~WiFiManagerParameter()
+{
+  delete[] _value;
+}
+
 WiFiManagerParameter::WiFiManagerParameter(const char *id, const char *placeholder, const char *defaultValue,
                                            int length)
 {
@@ -67,16 +72,17 @@ void WiFiManagerParameter::init(const char *id, const char *placeholder, const c
   _length = length;
   _labelPlacement = labelPlacement;
   _value = new char[length + 1];
-  for (int i = 0; i < length; i++)
-  {
-    _value[i] = 0;
-  }
-  if (defaultValue != NULL)
-  {
-    strncpy(_value, defaultValue, length);
-  }
+  setValue(defaultValue);
 
   _customHTML = custom;
+}
+
+void WiFiManagerParameter::setValue(const char *value)
+{
+  if (_value == nullptr)
+    return; // Custom HTML parameters have no value buffer.
+  strncpy(_value, value != nullptr ? value : "", _length);
+  _value[_length] = '\0';
 }
 
 const char *WiFiManagerParameter::getValue()
@@ -133,6 +139,7 @@ void WiFiManager::addParameter(WiFiManagerParameter *p)
 
 void WiFiManager::header()
 {
+  _configPortalStart = millis(); // Timeout is inactivity, including calibration requests.
   server->sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   server->sendHeader("Pragma", "no-cache");
   server->sendHeader("Expires", "-1");
@@ -370,7 +377,7 @@ boolean WiFiManager::startConfigPortal(char const *apName, char const *apPasswor
   connect = false;
   setupConfigPortal();
   bool TimedOut = true;
-  while (_configPortalTimeout == 0 || millis() < _configPortalStart + _configPortalTimeout)
+  while (_configPortalTimeout == 0 || millis() - _configPortalStart < _configPortalTimeout)
   {
     //DNS
     dnsServer->processNextRequest();
@@ -622,10 +629,13 @@ void WiFiManager::handleRoot()
   header();
   String page = FPSTR(HTTP_HEADER);
   page.replace("{v}", "Options");
-  page += FPSTR(HTTP_SCRIPT);
-  page += FPSTR(HTTP_STYLE);
-  page += _customHeadElement;
-  page += FPSTR(HTTP_HEADER_END);
+  // Send the static menu directly from flash. Building the entire page in a
+  // growing String can silently drop content when the ESP8266 heap is fragmented.
+  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server->send(200, "text/html", page);
+  server->sendContent_P(HTTP_STYLE);
+  server->sendContent_P(HTTP_HEADER_END);
+  page = "";
   page += "<h2>";
   page += _apName;
   if (WiFi.SSID() != "")
@@ -643,13 +653,15 @@ void WiFiManager::handleRoot()
     }
   }
   page += "</h2>";
-  page += FPSTR(HTTP_PORTAL_OPTIONS);
+  server->sendContent(page);
+  server->sendContent_P(HTTP_PORTAL_OPTIONS);
+  page = "";
   page += F("<div class='msg'>");
   reportStatus(page);
   page += F("</div>");
-  page += FPSTR(HTTP_END);
-
-  server->send(200, "text/html", page);
+  server->sendContent(page);
+  server->sendContent_P(HTTP_END);
+  server->sendContent(""); // Finish the chunked response.
 }
 
 /** Wifi config page handler */
@@ -814,10 +826,11 @@ void WiFiManager::handleWifiSave()
     {
       break;
     }
-    //read parameter
-    String value = server->arg(_params[i]->getID()).c_str();
-    //store it in array
-    value.toCharArray(_params[i]->_value, _params[i]->_length);
+    if (_params[i]->getID() == nullptr)
+      continue; // Custom HTML has neither a form field nor a value buffer.
+    // Preserve the full declared length and always terminate the value.
+    String value = server->arg(_params[i]->getID());
+    _params[i]->setValue(value.c_str());
     DEBUG_WM(F("Parameter"));
     DEBUG_WM(_params[i]->getID());
     DEBUG_WM(value);
@@ -1140,7 +1153,7 @@ void WiFiManager::handleScan()
   header();
 
   int n;
-  int *indices;
+  int *indices = nullptr;
   int **indicesptr = &indices;
   //Space for indices array allocated on heap in scanWifiNetworks
   //and should be freed when indices no longer required.
@@ -1307,9 +1320,10 @@ void WiFiManager::setRemoveDuplicateAPs(boolean removeDuplicates)
 //space for indices array allocated on the heap and should be freed when no longer required
 int WiFiManager::scanWifiNetworks(int **indicesptr)
 {
+  *indicesptr = nullptr;
   int n = WiFi.scanNetworks();
   DEBUG_WM(F("Scan done"));
-  if (n == 0)
+  if (n <= 0)
   {
     DEBUG_WM(F("No networks found"));
     return (0);

@@ -567,15 +567,18 @@ bool updatePolynomialFromCalibration()
   return true;
 }
 
-void captureCalibrationPoint(uint8_t idx)
+bool captureCalibrationPoint(uint8_t idx)
 {
   if (idx >= CAL_POINTS)
-    return;
+    return false;
   float t = getTilt();
+  if (isnan(t))
+    return false;
   myData.calTilt[idx] = t;
   if (idx + 1 > myData.calCount)
     myData.calCount = idx + 1;
   saveConfig();
+  return true;
 }
 
 void handleCalCapture()
@@ -588,9 +591,18 @@ void handleCalCapture()
     return;
   }
   int idx = configServer->arg("index").toInt();
-  captureCalibrationPoint(idx);
+  if (idx < 0 || idx >= CAL_POINTS)
+  {
+    configServer->send(400, "text/plain", "Invalid index");
+    return;
+  }
+  if (!captureCalibrationPoint(idx))
+  {
+    configServer->send(500, "text/plain", "Kunne ikke laese gyroscope/accelerometer");
+    return;
+  }
   float t = (idx >= 0 && idx < CAL_POINTS) ? myData.calTilt[idx] : NAN;
-  String body = "{\"index\":" + String(idx) + ",\"tilt\":" + String(isnan(t) ? 0 : t, 2) + "}";
+  String body = "{\"index\":" + String(idx) + ",\"tilt\":" + String(t, 2) + "}";
   configServer->send(200, "application/json", body);
 }
 
@@ -651,19 +663,104 @@ void handleCalCalc()
   }
 }
 
+static String calValue(float value, uint8_t decimals)
+{
+  if (isnan(value))
+    return "";
+  return String(value, decimals);
+}
+
+static void appendCalRow(String &page, uint8_t idx)
+{
+  page += F("<tr><td>");
+  if (idx == 0)
+    page += F("0 (vand)");
+  else
+    page += String(idx);
+  page += F("</td><td>");
+  if (idx == 0)
+  {
+    page += F("<input id='visCALSG0' class='cal-input cal-readonly' value='1.000' readonly>");
+  }
+  else
+  {
+    page += F("<input id='visCALSG");
+    page += String(idx);
+    page += F("' class='cal-input' inputmode='decimal' placeholder='SG ");
+    page += String(idx);
+    page += F("' value='");
+    page += calValue(myData.calSG[idx], 3);
+    page += F("'>");
+  }
+  page += F("</td><td><input id='visCALT");
+  page += String(idx);
+  page += F("' class='cal-input' inputmode='decimal' placeholder='Tilt ");
+  page += String(idx);
+  page += F("' value='");
+  page += calValue(myData.calTilt[idx], 2);
+  page += F("'></td><td><button class='cal-btn' type='button' onclick='captureTilt(");
+  page += String(idx);
+  page += F(")'>Opdater vinkel</button></td></tr>");
+}
+
+void handleCalPage()
+{
+  if (configServer == nullptr)
+    return;
+
+  String page = FPSTR(HTTP_HEADER);
+  page.replace("{v}", "Calibration");
+  page += FPSTR(HTTP_STYLE);
+  page += F("<style>"
+            ".cal-box{border:1px solid #ccc;padding:12px;margin-top:12px;border-radius:4px;}"
+            ".cal-box legend{font-weight:bold;padding:0 6px;}"
+            ".cal-box p{margin:6px 0;}"
+            ".cal-table{width:100%;border-collapse:collapse;margin-top:8px;}"
+            ".cal-table th,.cal-table td{padding:6px 4px;border-bottom:1px solid #e0e0e0;text-align:left;}"
+            ".cal-input{width:100%;padding:6px;border:1px solid #ccc;border-radius:3px;box-sizing:border-box;}"
+            ".cal-btn{display:inline-block;padding:6px 10px;margin:2px 0;border:1px solid #1976d2;border-radius:4px;"
+            "text-decoration:none;color:#1976d2;font-size:14px;background:#fff;}"
+            ".cal-btn:hover{background:#e3f2fd;}"
+            ".cal-btn-primary{background:#1976d2;color:#fff;border-color:#11508f;width:100%;}"
+            ".cal-btn-primary:hover{background:#11508f;}"
+            ".cal-note{font-size:12px;color:#444;margin-top:4px;}"
+            ".cal-readonly{background:#f7f7f7;}"
+            "</style>");
+  page += FPSTR(HTTP_HEADER_END);
+  page += F("<h2>Calibration</h2>"
+            "<fieldset id='cal-dashboard' class='cal-box'><legend>Kalibrering (iSpindel)</legend>"
+            "<p>Punkt 0 er vandkalibrering (rent vand, SG=1.000).</p>"
+            "<p>Opdater vinkler for hvert punkt, indtast SG for punkt 1-5, og afslut med beregning.</p>"
+            "<table class='cal-table'><tr><th>Punkt</th><th>SG</th><th>Tilt (&deg;)</th><th>Handling</th></tr>");
+  for (uint8_t i = 0; i < CAL_POINTS; i++)
+    appendCalRow(page, i);
+  page += F("</table><div style='margin-top:10px;'>"
+            "<button class='cal-btn cal-btn-primary' type='button' onclick='submitCalc()'>Beregn og gem polynomium</button>"
+            "<div class='cal-note'>Kr&aelig;ver min. 4 gyldige punkter. Resultatet gemmes og bruges til Plato/SG-beregning.</div>"
+            "</div><label for='POLYN'>Aktuelt polynomium</label><textarea id='POLYN' readonly>");
+  page += htmlencode(myData.polynominal);
+  page += F("</textarea><br><form action='/' method='get'><button class='btn'>Back</button></form>"
+            "<script>"
+            "function submitCalc(){var ids=['visCALT0','visCALSG1','visCALT1','visCALSG2','visCALT2','visCALSG3','visCALT3','visCALSG4','visCALT4','visCALSG5','visCALT5'];"
+            "var params=[];var mapSend={'visCALT0':'calt0','visCALSG1':'calsg1','visCALT1':'calt1','visCALSG2':'calsg2','visCALT2':'calt2','visCALSG3':'calsg3','visCALT3':'calt3','visCALSG4':'calsg4','visCALT4':'calt4','visCALSG5':'calsg5','visCALT5':'calt5'};"
+            "ids.forEach(function(id){var el=document.getElementById(id);if(el){params.push(mapSend[id]+'='+encodeURIComponent(el.value||''));}});"
+            "fetch('/cal/calc?'+params.join('&')).then(function(r){return r.text();}).then(function(txt){alert(txt);var poly=document.getElementById('POLYN');if(poly&&txt.indexOf('Polynomial updated:')===0){poly.value=txt.replace('Polynomial updated: ','');}}).catch(function(){alert('Fejl ved beregning');});}"
+            "function captureTilt(idx){fetch('/cal/capture?index='+idx).then(function(r){if(!r.ok){return r.text().then(function(t){throw new Error(t||'Fejl ved maaling');});}return r.json();}).then(function(data){var vis=document.getElementById('visCALT'+idx);if(vis&&data&&data.tilt!==undefined){vis.value=parseFloat(data.tilt).toFixed(2);}}).catch(function(e){alert(e.message||'Fejl ved maaling');});}"
+            "</script></fieldset>");
+  page += FPSTR(HTTP_END);
+
+  configServer->send(200, "text/html", page);
+}
+
 bool startConfiguration()
 {
 
+  shouldSaveConfig = false;
   WiFiManager wifiManager;
 
   wifiManager.setConfigPortalTimeout(PORTALTIMEOUT);
   wifiManager.setSaveConfigCallback(saveConfigCallback);
   wifiManager.setBreakAfterConfig(true);
-  wifiManager.setServerInitCallback([](ESP8266WebServer &server) {
-    configServer = &server;
-    server.on("/cal/capture", handleCalCapture);
-    server.on("/cal/calc", handleCalCalc);
-  });
 
   WiFiManagerParameter api_list(HTTP_API_LIST);
   WiFiManagerParameter custom_api("selAPI", "selAPI", String(myData.api).c_str(), 20, TYPE_HIDDEN, WFM_NO_LABEL);
@@ -881,7 +978,7 @@ var map={visCALT0:'CALT0',visCALSG1:'CALSG1',visCALT1:'CALT1',visCALSG2:'CALSG2'
 function syncFromHidden(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){vis.value=h.value;}});var sg0=document.getElementById('visCALSG0');if(sg0&&!sg0.value)sg0.value='1.000';}
 function syncToHidden(){Object.keys(map).forEach(function(v){var h=document.getElementById(map[v]);var vis=document.getElementById(v);if(h&&vis){h.value=vis.value;}});}
 function submitCalc(){syncToHidden();var ids=['visCALT0','visCALSG1','visCALT1','visCALSG2','visCALT2','visCALSG3','visCALT3','visCALSG4','visCALT4','visCALSG5','visCALT5'];var params=[];var mapSend={'visCALT0':'calt0','visCALSG1':'calsg1','visCALT1':'calt1','visCALSG2':'calsg2','visCALT2':'calt2','visCALSG3':'calsg3','visCALT3':'calt3','visCALSG4':'calsg4','visCALT4':'calt4','visCALSG5':'calsg5','visCALT5':'calt5'};ids.forEach(function(id){var el=document.getElementById(id);if(el){params.push(mapSend[id]+'='+encodeURIComponent(el.value||''));}});fetch('/cal/calc?'+params.join('&')).then(function(r){return r.text();}).then(function(txt){alert(txt);var poly=document.getElementById('POLYN');if(poly&&txt.indexOf('Polynomial updated:')===0){poly.value=txt.replace('Polynomial updated: ','');}}).catch(function(){alert('Fejl ved beregning');});}
-function captureTilt(idx){fetch('/cal/capture?index='+idx).then(function(r){return r.json();}).then(function(data){var vis=document.getElementById('visCALT'+idx);if(vis&&data&&data.tilt!==undefined){vis.value=parseFloat(data.tilt).toFixed(2);syncToHidden();}}).catch(function(){});}
+function captureTilt(idx){fetch('/cal/capture?index='+idx).then(function(r){if(!r.ok){return r.text().then(function(t){throw new Error(t||'Fejl ved maaling');});}return r.json();}).then(function(data){var vis=document.getElementById('visCALT'+idx);if(vis&&data&&data.tilt!==undefined){vis.value=parseFloat(data.tilt).toFixed(2);syncToHidden();}}).catch(function(e){alert(e.message||'Fejl ved maaling');});}
 window.submitCalc=submitCalc;window.captureTilt=captureTilt;
 syncFromHidden();document.addEventListener('DOMContentLoaded',function(){syncFromHidden();var form=document.querySelector('form');if(form){form.addEventListener('submit',function(){syncToHidden();});}});
 })();</script>
@@ -889,6 +986,39 @@ syncFromHidden();document.addEventListener('DOMContentLoaded',function(){syncFro
 )rawliteral";
   WiFiManagerParameter cal_dashboard(CAL_DASHBOARD_HTML);
   wifiManager.addParameter(&cal_dashboard);
+
+  // The separate calibration page writes myData directly. Keep the configuration
+  // form in sync so saving it later cannot restore the old calibration/polynomial.
+  WiFiManagerParameter *calTiltParams[CAL_POINTS] = {
+      &cal_tilt0, &cal_tilt1, &cal_tilt2, &cal_tilt3, &cal_tilt4, &cal_tilt5};
+  WiFiManagerParameter *calSGParams[CAL_POINTS] = {
+      nullptr, &cal_sg1, &cal_sg2, &cal_sg3, &cal_sg4, &cal_sg5};
+  auto syncCalibrationParameters = [&]() {
+    custom_polynom.setValue(htmlencode(myData.polynominal).c_str());
+    for (uint8_t i = 0; i < CAL_POINTS; i++)
+    {
+      calTiltParams[i]->setValue(calValue(myData.calTilt[i], 2).c_str());
+      if (calSGParams[i] != nullptr)
+        calSGParams[i]->setValue(calValue(myData.calSG[i], 3).c_str());
+    }
+  };
+  wifiManager.setServerInitCallback([&](ESP8266WebServer &server) {
+    configServer = &server;
+    server.on("/cal", [&]() {
+      wifiManager.header();
+      handleCalPage();
+    });
+    server.on("/cal/capture", [&]() {
+      wifiManager.header();
+      handleCalCapture();
+      syncCalibrationParameters();
+    });
+    server.on("/cal/calc", [&]() {
+      wifiManager.header();
+      handleCalCalc();
+      syncCalibrationParameters();
+    });
+  });
 
   wifiManager.setConfSSID(htmlencode(myData.ssid));
   wifiManager.setConfPSK(htmlencode(myData.psk));
@@ -905,6 +1035,10 @@ syncFromHidden();document.addEventListener('DOMContentLoaded',function(){syncFro
 
   wifiManager.startConfigPortal(ssid);
   configServer = nullptr;
+
+  // Exit/timeout must not replace values saved by /cal with old form defaults.
+  if (!shouldSaveConfig)
+    return false;
 
   strcpy(myData.polynominal, custom_polynom.getValue());
   auto parseFloatValue = [](const char *val) {

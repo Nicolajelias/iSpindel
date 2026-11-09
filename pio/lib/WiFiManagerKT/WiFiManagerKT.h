@@ -120,7 +120,7 @@ const char TYPE_CHECKBOX[] = "type=\"checkbox\"";
 const char TYPE_CHECKBOX_CHECKED[] = "type=\"checkbox\" checked";
 
 const char HTTP_HEADER_END[] PROGMEM = "</head><body><div class=\"container\">";
-const char HTTP_PORTAL_OPTIONS[] PROGMEM = "<form action=\"/iSpindel\" method=\"get\"><button class=\"btn\">iSpindel Info</button></form><br/><form action=\"/wifi\" method=\"get\"><button class=\"btn\">Configuration</button></form><br/><form action=\"/mnt\" method=\"get\"><button class=\"btn\">Maintenance</button></form><br/><form action=\"/i\" method=\"get\"><button class=\"btn\">Information</button></form><br/><form action=\"/close\" method=\"get\"><button class=\"btn\">Exit Portal</button></form><br/>";
+const char HTTP_PORTAL_OPTIONS[] PROGMEM = "<form action=\"/iSpindel\" method=\"get\"><button class=\"btn\">iSpindel Info</button></form><br/><form action=\"/wifi\" method=\"get\"><button class=\"btn\">Configuration</button></form><br/><form action=\"/cal\" method=\"get\"><button class=\"btn\">Calibration</button></form><br/><form action=\"/mnt\" method=\"get\"><button class=\"btn\">Maintenance</button></form><br/><form action=\"/i\" method=\"get\"><button class=\"btn\">Information</button></form><br/><form action=\"/close\" method=\"get\"><button class=\"btn\">Exit Portal</button></form><br/>";
 const char HTTP_ITEM[] PROGMEM = "<div><a href=\"#p\" onclick=\"c(this)\">{v}</a>&nbsp;<span class=\"q {i}\">{r}%</span></div>";
 const char JSON_ITEM[] PROGMEM = "{\"SSID\":\"{v}\", \"Encryption\":{i}, \"Quality\":\"{r}\"}";
 // const char HTTP_FORM_START[] PROGMEM = "<form method=\"get\" action=\"wifisave\"><label>SSID</label><input id=\"s\" name=\"s\" length=32 placeholder=\"SSID\"><label>Password</label><input id=\"p\" name=\"p\" length=64 placeholder=\"password\">";
@@ -142,12 +142,16 @@ class WiFiManagerParameter
 {
 public:
   WiFiManagerParameter(const char *custom);
+  ~WiFiManagerParameter();
+  WiFiManagerParameter(const WiFiManagerParameter &) = delete;
+  WiFiManagerParameter &operator=(const WiFiManagerParameter &) = delete;
   WiFiManagerParameter(const char *id, const char *placeholder, const char *defaultValue, int length);
   WiFiManagerParameter(const char *id, const char *placeholder, const char *defaultValue, int length, const char *custom);
   WiFiManagerParameter(const char *id, const char *placeholder, const char *defaultValue, int length, const char *custom, int labelPlacement);
 
   const char *getID();
   const char *getValue();
+  void setValue(const char *value);
   const char *getPlaceholder();
   int getValueLength();
   int getLabelPlacement();
@@ -243,7 +247,7 @@ private:
     will see an information page if they are connected to the wrong network */
   const char *myHostname = "192.168.4.1";
   int numberOfNetworks;
-  int *networkIndices;
+  int *networkIndices = nullptr;
   int **networkIndicesptr = &networkIndices;
 
   IPAddress _ap_static_ip;
@@ -302,7 +306,7 @@ private:
   void (*_savecallback)(void) = NULL;
   std::function<void(ESP8266WebServer &)> _serverInitCallback = nullptr;
 
-  WiFiManagerParameter *_params[WIFI_MANAGER_MAX_PARAMS];
+  WiFiManagerParameter *_params[WIFI_MANAGER_MAX_PARAMS] = {};
 
   template <typename Generic>
   void DEBUG_WM(Generic text);
